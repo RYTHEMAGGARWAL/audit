@@ -137,7 +137,7 @@ const UserManagement = () => {
 
   const saveToBackend = async (users) => {
     try {
-      console.log('Saving', users.length, 'users...');
+      console.log('💾 Saving', users.length, 'users to backend...');
       
       const cleanUsers = users.map(user => ({
         username: String(user.username || ''),
@@ -149,15 +149,17 @@ const UserManagement = () => {
         Role: String(user.Role || 'User')
       }));
 
-      await axios.post(`${API_URL}/api/update-users`, { users: cleanUsers });
-      console.log('Backend saved!');
+      const response = await axios.post(`${API_URL}/api/update-users`, { users: cleanUsers });
+      console.log('✅ Backend response:', response.data);
       
       await new Promise(resolve => setTimeout(resolve, 800));
       await loadUsersData();
       
       return true;
     } catch (err) {
-      console.error('Save error:', err);
+      console.error('❌ Save error:', err);
+      console.error('❌ Error details:', err.response?.data || err.message);
+      alert(`❌ Failed to save to backend: ${err.response?.data?.error || err.message}`);
       return false;
     }
   };
@@ -246,14 +248,19 @@ const UserManagement = () => {
     setGlobalUsers([...updatedUsers]);
     setForceUpdate(prev => prev + 1);
 
-    await saveToBackend(updatedUsers);
+    const saveSuccess = await saveToBackend(updatedUsers);
+    
+    if (!saveSuccess) {
+      alert('⚠️ User created locally but failed to save to server! Please check console for errors.');
+      return;
+    }
 
     // Reset
     setNewUserForm({ username: '', password: '', firstname: '', lastname: '', email: '', mobile: '', Role: 'User' });
     setPasswordStrength('');
     setValidationErrors({});
 
-    alert('✅ User created successfully!');
+    alert('✅ User created and saved successfully!');
   };
 
   const handleUpdate = async () => {
