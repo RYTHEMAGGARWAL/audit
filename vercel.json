@@ -1,7 +1,7 @@
 {
   "buildCommand": "npm run build",
   "outputDirectory": "dist",
-  "framework": "",
+  "framework": "vite",
   "env": {
     "VITE_API_URL": "https://audit-4urv.onrender.com"
   }
