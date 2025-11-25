@@ -417,17 +417,25 @@ app.get('/api/users.xlsx', (req, res) => {
 // Update Users
 app.post('/api/update-users', async (req, res) => {
   try {
-    const users = req.body;
+    // Frontend sends: { users: [...] }
+    const users = req.body.users || req.body;
     
     console.log(`\n💾 ========== UPDATING USERS ==========`);
+    console.log(`💾 Request body type:`, Array.isArray(req.body) ? 'Array' : 'Object');
+    console.log(`💾 Users array:`, Array.isArray(users) ? 'Yes' : 'No');
     console.log(`💾 Total users: ${users.length}`);
+
+    if (!Array.isArray(users)) {
+      console.error('❌ Users is not an array:', users);
+      return res.status(400).json({ error: 'Invalid payload: users must be an array' });
+    }
 
     const filePath = path.join(__dirname, 'public', 'users.xlsx');
     const workbook = new ExcelJS.Workbook();
     const worksheet = workbook.addWorksheet('Users');
     
     // Headers
-    worksheet.addRow(['Username', 'Password', 'First Name', 'Last Name', 'Email', 'Role']);
+    worksheet.addRow(['Username', 'Password', 'First Name', 'Last Name', 'Email', 'Mobile', 'Role']);
     worksheet.getRow(1).font = { bold: true };
     
     // Add users
@@ -438,6 +446,7 @@ app.post('/api/update-users', async (req, res) => {
         user.firstname,
         user.lastname,
         user.email,
+        user.mobile || '',
         user.Role
       ]);
     });
@@ -445,7 +454,7 @@ app.post('/api/update-users', async (req, res) => {
     // Column widths
     worksheet.columns = [
       { width: 15 }, { width: 15 }, { width: 18 }, { width: 18 },
-      { width: 25 }, { width: 10 }
+      { width: 25 }, { width: 15 }, { width: 10 }
     ];
 
     await workbook.xlsx.writeFile(filePath);
@@ -942,4 +951,4 @@ app.listen(PORT, () => {
   console.log(`      POST /api/save-audit-report`);
   console.log(`      POST /api/save-audit-reports ⭐ NEW!`);
   console.log(`\n========================================\n`);
-}); 
+});
