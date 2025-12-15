@@ -35,9 +35,13 @@ if (!fs.existsSync(publicDir)) {
 const transporter = nodemailer.createTransport({
   service: 'gmail', // You can use: 'gmail', 'outlook', 'yahoo', etc.
   auth: {
-    user: 'Rythemaggarwal7840@gmail.com', // ⚠️ REPLACE THIS
-    pass: 'hruz whzc aoet hboe'      // ⚠️ REPLACE THIS (use App Password, not regular password)
-  }
+    user: 'rythemaggarwal7840@gmail.com', // ⚠️ REPLACE THIS
+    pass: 'mcou dlaz bodo odwe'      // ⚠️ REPLACE THIS (use App Password, not regular password)
+  },
+  // Add timeouts to prevent hanging
+  connectionTimeout: 10000, // 10 seconds
+  greetingTimeout: 10000,
+  socketTimeout: 20000
 });
 
 // For Gmail: Enable "Less secure app access" OR use "App Password"
@@ -824,6 +828,12 @@ app.post('/api/send-audit-email', async (req, res) => {
       return res.status(400).json({ success: false, error: 'Recipient email is required' });
     }
 
+    // Validate email format
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(to)) {
+      return res.status(400).json({ success: false, error: 'Invalid recipient email format' });
+    }
+
     const mailOptions = {
       from: 'Rythemaggarwal7840@gmail.com', // Your email
       to: to,
@@ -915,6 +925,8 @@ app.post('/api/send-audit-email', async (req, res) => {
       `
     };
 
+    console.log(`📧 Attempting to send email...`);
+    
     await transporter.sendMail(mailOptions);
     
     console.log(`✅ Email sent successfully to ${to}`);
@@ -924,7 +936,19 @@ app.post('/api/send-audit-email', async (req, res) => {
 
   } catch (err) {
     console.error('❌ Send email error:', err.message);
-    res.status(500).json({ success: false, error: err.message });
+    console.error('❌ Full error:', err);
+    
+    // Provide specific error messages
+    let errorMessage = err.message;
+    if (err.code === 'EAUTH') {
+      errorMessage = 'Email authentication failed! Check Gmail App Password.';
+    } else if (err.code === 'ESOCKET' || err.code === 'ETIMEDOUT') {
+      errorMessage = 'Connection to email server failed. Check internet connection.';
+    } else if (err.code === 'EENVELOPE') {
+      errorMessage = 'Invalid email address format.';
+    }
+    
+    res.status(500).json({ success: false, error: errorMessage });
   }
 });
 

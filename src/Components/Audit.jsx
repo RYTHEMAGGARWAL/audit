@@ -574,16 +574,24 @@ ${loggedUser.firstname || 'Audit Team'}`
       return;
     }
 
+    // Validate CC if provided
+    if (emailData.cc && !emailRegex.test(emailData.cc)) {
+      alert('⚠️ Please enter a valid CC email address!');
+      return;
+    }
+
     try {
       setSendingEmail(true);
       
-      // Send email via backend API
+      // Send email via backend API with timeout
       const response = await axios.post(`${API_URL}/api/send-audit-email`, {
         to: emailData.to,
-        cc: emailData.cc,
+        cc: emailData.cc || undefined,
         subject: emailData.subject,
         message: emailData.message,
         reportData: selectedReportForEmail
+      }, {
+        timeout: 30000 // 30 second timeout
       });
 
       if (response.data.success) {
@@ -594,8 +602,19 @@ ${loggedUser.firstname || 'Audit Team'}`
       }
     } catch (err) {
       console.error('❌ Error sending email:', err);
-      alert('✅ Email request submitted! (Backend email service may need configuration)');
-      handleCloseEmailForm();
+      
+      // Show specific error message based on error type
+      if (err.code === 'ECONNABORTED') {
+        alert('❌ Request timed out! Server might be slow. Please try again.');
+      } else if (err.response) {
+        // Server responded with error
+        alert('❌ Failed to send email: ' + (err.response.data?.error || err.response.statusText || 'Server error'));
+      } else if (err.request) {
+        // Request made but no response
+        alert('❌ No response from server! Check if backend is running.');
+      } else {
+        alert('❌ Error: ' + err.message);
+      }
     } finally {
       setSendingEmail(false);
     }
