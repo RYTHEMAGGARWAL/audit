@@ -7,8 +7,7 @@ const bodyParser = require('body-parser');
 const mongoose = require('mongoose');
 const nodemailer = require('nodemailer');
 const crypto = require('crypto');
-const puppeteer = require('puppeteer');
-const { generateEmailHTML, generatePDFHTML, generateEmailSubject } = require('./emailTemplate');
+const { generateEmailHTML, generateEmailSubject } = require('./emailTemplate');
 require('dotenv').config();
 
 const app = express();
@@ -776,52 +775,9 @@ app.post('/api/send-audit-email', async (req, res) => {
     console.log(`📧 CC: ${cc || 'None'}`);
     console.log(`📧 Report: ${reportData?.centerName}`);
 
-    // Generate PDF from detailed report
+    // Generate HTML email content (No PDF - HTML only)
     let pdfBuffer = null;
-    try {
-      console.log('📄 Generating PDF...');
-      const browser = await puppeteer.launch({ 
-        headless: 'new',
-        args: [
-          '--no-sandbox', 
-          '--disable-setuid-sandbox',
-          '--disable-dev-shm-usage',
-          '--disable-accelerated-2d-canvas',
-          '--disable-gpu',
-          '--no-first-run',
-          '--no-zygote',
-          '--single-process'
-        ]
-      });
-      const page = await browser.newPage();
-      
-      // Disable images and CSS for faster loading
-      await page.setRequestInterception(true);
-      page.on('request', (req) => {
-        if (req.resourceType() === 'image' || req.resourceType() === 'font') {
-          req.abort();
-        } else {
-          req.continue();
-        }
-      });
-      
-      const pdfHTML = generatePDFHTML(reportData);
-      await page.setContent(pdfHTML, { 
-        waitUntil: 'domcontentloaded',
-        timeout: 60000 
-      });
-      
-      pdfBuffer = await page.pdf({ 
-        format: 'A4',
-        printBackground: true,
-        margin: { top: '20px', right: '20px', bottom: '20px', left: '20px' }
-      });
-      await browser.close();
-      console.log('📄 PDF generated successfully!');
-    } catch (pdfErr) {
-      console.error('⚠️ PDF generation failed:', pdfErr.message);
-      // Continue without PDF if generation fails
-    }
+    console.log('📧 Sending HTML email (no PDF attachment)');
 
     // Generate HTML email content
     const emailHTML = generateEmailHTML(reportData, message);
