@@ -1,198 +1,246 @@
+// ========================================
+// NIIT Audit System - MongoDB Server
+// ========================================
 const express = require('express');
 const cors = require('cors');
-const ExcelJS = require('exceljs');
-const fs = require('fs');
-const path = require('path');
 const bodyParser = require('body-parser');
+const mongoose = require('mongoose');
 const nodemailer = require('nodemailer');
 const crypto = require('crypto');
+const puppeteer = require('puppeteer');
+const { generateEmailHTML, generatePDFHTML, generateEmailSubject } = require('./emailTemplate');
+require('dotenv').config();
 
 const app = express();
-const PORT = 3001;
+const PORT = process.env.PORT || 3001;
 
-// OTP Storage (in production, use Redis or database)
-const otpStore = new Map(); // Format: { email: { otp, expiresAt, username } }
+// ========================================
+// MONGODB CONNECTION
+// ========================================
+const MONGODB_URI = process.env.MONGODB_URI || 'mongodb+srv://rythemaggarwal7740_db_user:CARdq_7840.@niit-audit-cluster.tn2rvlx.mongodb.net/niit_audit?retryWrites=true&w=majority&appName=niit-audit-cluster';
 
-// Middleware
-app.use(cors({ origin: ['http://localhost:5173','https://audit-murex.vercel.app','https://audit-gb4uarzdu-rythem-aggarwals-projects.vercel.app'], credentials: true }));
+mongoose.connect(MONGODB_URI)
+  .then(() => {
+    console.log('\n🍃 ========================================');
+    console.log('🍃 MongoDB Atlas Connected Successfully!');
+    console.log('🍃 Database: niit_audit');
+    console.log('🍃 ========================================\n');
+  })
+  .catch(err => {
+    console.error('❌ MongoDB Connection Error:', err.message);
+    process.exit(1);
+  });
+
+// ========================================
+// SCHEMAS
+// ========================================
+
+// User Schema
+const userSchema = new mongoose.Schema({
+  username: { type: String, required: true, unique: true, lowercase: true, trim: true },
+  password: { type: String, required: true },
+  firstname: { type: String, required: true, trim: true },
+  lastname: { type: String, trim: true, default: '' },
+  email: { type: String, required: true, unique: true, lowercase: true, trim: true },
+  mobile: { type: String, trim: true, default: '' },
+  role: { type: String, enum: ['Admin', 'Audit User', 'Center User'], default: 'Audit User' },
+  isActive: { type: Boolean, default: true },
+  resetOTP: { type: String, default: null },
+  resetOTPExpires: { type: Date, default: null }
+}, { timestamps: true });
+
+const User = mongoose.model('User', userSchema);
+
+// Center Schema
+const centerSchema = new mongoose.Schema({
+  centerCode: { type: String, required: true, unique: true, uppercase: true, trim: true },
+  centerName: { type: String, required: true, trim: true },
+  chName: { type: String, trim: true, default: '' },
+  geolocation: { type: String, trim: true, default: '' },
+  centerHeadName: { type: String, trim: true, default: '' },
+  zonalHeadName: { type: String, trim: true, default: '' },
+  isActive: { type: Boolean, default: true }
+}, { timestamps: true });
+
+const Center = mongoose.model('Center', centerSchema);
+
+// Audit Report Schema
+const checkpointDataSchema = new mongoose.Schema({
+  totalSamples: { type: String, default: '' },
+  samplesCompliant: { type: String, default: '' },
+  compliantPercent: { type: Number, default: 0 },
+  score: { type: Number, default: 0 },
+  remarks: { type: String, default: '' },
+  centerHeadRemarks: { type: String, default: '' }
+}, { _id: false });
+
+const auditReportSchema = new mongoose.Schema({
+  centerCode: { type: String, required: true, trim: true },
+  centerName: { type: String, required: true, trim: true },
+  chName: { type: String, trim: true, default: '' },
+  geolocation: { type: String, trim: true, default: '' },
+  centerHeadName: { type: String, trim: true, default: '' },
+  zonalHeadName: { type: String, trim: true, default: '' },
+  frontOfficeScore: { type: Number, default: 0 },
+  deliveryProcessScore: { type: Number, default: 0 },
+  placementScore: { type: Number, default: 0 },
+  managementScore: { type: Number, default: 0 },
+  grandTotal: { type: Number, default: 0 },
+  auditDate: { type: Date, default: Date.now },
+  auditDateString: { type: String, default: '' },
+  // Checkpoints
+  FO1: { type: checkpointDataSchema, default: () => ({}) },
+  FO2: { type: checkpointDataSchema, default: () => ({}) },
+  FO3: { type: checkpointDataSchema, default: () => ({}) },
+  FO4: { type: checkpointDataSchema, default: () => ({}) },
+  FO5: { type: checkpointDataSchema, default: () => ({}) },
+  DP1: { type: checkpointDataSchema, default: () => ({}) },
+  DP2: { type: checkpointDataSchema, default: () => ({}) },
+  DP3: { type: checkpointDataSchema, default: () => ({}) },
+  DP4: { type: checkpointDataSchema, default: () => ({}) },
+  DP5: { type: checkpointDataSchema, default: () => ({}) },
+  DP6: { type: checkpointDataSchema, default: () => ({}) },
+  DP7: { type: checkpointDataSchema, default: () => ({}) },
+  DP8: { type: checkpointDataSchema, default: () => ({}) },
+  DP9: { type: checkpointDataSchema, default: () => ({}) },
+  DP10: { type: checkpointDataSchema, default: () => ({}) },
+  DP11: { type: checkpointDataSchema, default: () => ({}) },
+  PP1: { type: checkpointDataSchema, default: () => ({}) },
+  PP2: { type: checkpointDataSchema, default: () => ({}) },
+  PP3: { type: checkpointDataSchema, default: () => ({}) },
+  PP4: { type: checkpointDataSchema, default: () => ({}) },
+  MP1: { type: checkpointDataSchema, default: () => ({}) },
+  MP2: { type: checkpointDataSchema, default: () => ({}) },
+  MP3: { type: checkpointDataSchema, default: () => ({}) },
+  MP4: { type: checkpointDataSchema, default: () => ({}) },
+  MP5: { type: checkpointDataSchema, default: () => ({}) },
+  placementApplicable: { type: String, enum: ['yes', 'no'], default: 'yes' },
+  submissionStatus: { type: String, default: 'Not Submitted' },
+  currentStatus: { type: String, default: 'Not Submitted' },
+  approvedBy: { type: String, default: '' },
+  submittedDate: { type: String, default: '' },
+  remarksText: { type: String, default: '' },
+  // Center User Remarks
+  centerRemarks: { type: String, default: '' },
+  centerRemarksBy: { type: String, default: '' },
+  centerRemarksDate: { type: String, default: '' },
+  // Email Sent Status
+  emailSent: { type: Boolean, default: false },
+  emailSentDate: { type: String, default: '' },
+  emailSentTo: { type: String, default: '' }
+}, { timestamps: true });
+
+const AuditReport = mongoose.model('AuditReport', auditReportSchema);
+
+// ========================================
+// MIDDLEWARE
+// ========================================
+app.use(cors({
+  origin: [
+    'http://localhost:5173',
+    'http://localhost:3000',
+    'https://audit-murex.vercel.app',
+    'https://audit-gb4uarzdu-rythem-aggarwals-projects.vercel.app'
+  ],
+  credentials: true
+}));
 app.use(bodyParser.json({ limit: '10mb' }));
-app.use(bodyParser.raw({ type: 'application/octet-stream', limit: '50mb' })); // ✅ ADDED FOR EXCEL BUFFER
+app.use(bodyParser.urlencoded({ extended: true, limit: '10mb' }));
 app.use('/public', express.static('public'));
 
-// Create public directory
-const publicDir = path.join(__dirname, 'public');
-if (!fs.existsSync(publicDir)) {
-  fs.mkdirSync(publicDir, { recursive: true });
-  console.log('✅ Created public folder');
-}
-
-// ========================================
-// EMAIL CONFIGURATION
-// ========================================
-
-// Configure Nodemailer transporter
-// IMPORTANT: Replace with your actual email credentials
+// Email Configuration
 const transporter = nodemailer.createTransport({
-  service: 'gmail', // You can use: 'gmail', 'outlook', 'yahoo', etc.
+  service: 'gmail',
   auth: {
-    user: 'rythemaggarwal7840@gmail.com', // ⚠️ REPLACE THIS
-    pass: 'mcou dlaz bodo odwe'      // ⚠️ REPLACE THIS (use App Password, not regular password)
+    user: process.env.EMAIL_USER || 'rythemaggarwal7840@gmail.com',
+    pass: process.env.EMAIL_PASS || 'mcou dlaz bodo odwe'
   },
-  // Add timeouts to prevent hanging
-  connectionTimeout: 10000, // 10 seconds
+  connectionTimeout: 10000,
   greetingTimeout: 10000,
   socketTimeout: 20000
 });
 
-// For Gmail: Enable "Less secure app access" OR use "App Password"
-// Generate App Password: https://myaccount.google.com/apppasswords
-
 // ========================================
-// FORGOT PASSWORD ROUTES
+// AUTH ROUTES
 // ========================================
 
-// Send OTP to Email
+// Login
+app.post('/api/login', async (req, res) => {
+  try {
+    const { username, password } = req.body;
+    console.log(`\n🔐 ========== LOGIN ATTEMPT ==========`);
+    console.log(`👤 Username: ${username}`);
+
+    if (!username || !password) {
+      return res.status(400).json({ error: 'Username and password required' });
+    }
+
+    const user = await User.findOne({ 
+      username: username.toLowerCase(),
+      isActive: true 
+    });
+
+    if (!user || user.password !== password) {
+      console.log(`❌ Invalid credentials for ${username}`);
+      return res.status(401).json({ error: 'Invalid username or password' });
+    }
+
+    console.log(`✅ Login successful for ${username}`);
+    console.log(`✅ Role: ${user.role}`);
+
+    res.json({
+      success: true,
+      user: {
+        _id: user._id,
+        username: user.username,
+        firstname: user.firstname,
+        lastname: user.lastname,
+        email: user.email,
+        mobile: user.mobile,
+        Role: user.role  // Frontend expects 'Role'
+      }
+    });
+  } catch (err) {
+    console.error('❌ Login error:', err.message);
+    res.status(500).json({ error: 'Login failed: ' + err.message });
+  }
+});
+
+// Send OTP
 app.post('/api/forgot-password/send-otp', async (req, res) => {
   try {
     const { email } = req.body;
-    
-    console.log(`\n📧 ========== FORGOT PASSWORD: SEND OTP ==========`);
+    console.log(`\n📧 ========== FORGOT PASSWORD ==========`);
     console.log(`📧 Email: ${email}`);
 
-    if (!email) {
-      return res.status(400).json({ error: 'Email is required' });
-    }
-
-    // Check if email exists in users.xlsx
-    const filePath = path.join(__dirname, 'public', 'users.xlsx');
-    
-    if (!fs.existsSync(filePath)) {
-      console.log(`❌ Users file not found`);
-      return res.status(404).json({ error: 'User database not found' });
-    }
-
-    const workbook = new ExcelJS.Workbook();
-    await workbook.xlsx.readFile(filePath);
-    const worksheet = workbook.worksheets[0];
-    
-    let userFound = false;
-    let username = '';
-    let firstname = '';
-    
-    worksheet.eachRow({ includeEmpty: false }, (row, rowNumber) => {
-      if (rowNumber > 1) {
-        const userEmail = row.getCell(5).value?.toString().trim().toLowerCase();
-        if (userEmail === email.toLowerCase()) {
-          userFound = true;
-          username = row.getCell(1).value?.toString().trim();
-          firstname = row.getCell(3).value?.toString().trim() || 'User';
-        }
-      }
-    });
-
-    if (!userFound) {
-      console.log(`❌ Email not found: ${email}`);
+    const user = await User.findOne({ email: email.toLowerCase(), isActive: true });
+    if (!user) {
       return res.status(404).json({ error: 'Email not found in our system' });
     }
 
-    // Generate 6-digit OTP
     const otp = crypto.randomInt(100000, 999999).toString();
-    const expiresAt = Date.now() + 10 * 60 * 1000; // 10 minutes
+    user.resetOTP = otp;
+    user.resetOTPExpires = new Date(Date.now() + 10 * 60 * 1000);
+    await user.save();
 
-    // Store OTP
-    otpStore.set(email.toLowerCase(), { otp, expiresAt, username });
-    
-    console.log(`✅ Generated OTP: ${otp} for ${email}`);
-    console.log(`✅ Username: ${username}`);
-    console.log(`✅ Expires in 10 minutes`);
+    console.log(`✅ Generated OTP: ${otp}`);
 
-    // Send Email
     const mailOptions = {
-      from: 'your-email@gmail.com', // ⚠️ REPLACE THIS
+      from: process.env.EMAIL_USER,
       to: email,
       subject: 'Password Reset OTP - NIIT System',
-      html: `
-        <!DOCTYPE html>
-        <html>
-        <head>
-          <style>
-            body { font-family: Arial, sans-serif; background: #f4f4f4; margin: 0; padding: 20px; }
-            .container { max-width: 600px; margin: 0 auto; background: white; padding: 30px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
-            .header { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 20px; border-radius: 10px; text-align: center; }
-            .header h1 { margin: 0; font-size: 24px; }
-            .content { padding: 20px 0; }
-            .otp-box { background: #f0f8ff; border: 2px dashed #667eea; padding: 20px; text-align: center; margin: 20px 0; border-radius: 10px; }
-            .otp-code { font-size: 36px; font-weight: bold; color: #667eea; letter-spacing: 5px; }
-            .warning { background: #fff3cd; border-left: 4px solid #ffc107; padding: 15px; margin: 20px 0; border-radius: 5px; }
-            .footer { text-align: center; color: #666; font-size: 12px; margin-top: 20px; border-top: 1px solid #ddd; padding-top: 20px; }
-          </style>
-        </head>
-        <body>
-          <div class="container">
-            <div class="header">
-              <h1>🔐 Password Reset Request</h1>
-            </div>
-            <div class="content">
-              <p>Hello <strong>${firstname}</strong>,</p>
-              <p>We received a request to reset your password for your NIIT account (<strong>${username}</strong>).</p>
-              
-              <div class="otp-box">
-                <p style="margin: 0 0 10px 0; color: #666;">Your OTP Code:</p>
-                <div class="otp-code">${otp}</div>
-                <p style="margin: 10px 0 0 0; color: #666; font-size: 14px;">Valid for 10 minutes</p>
-              </div>
-
-              <p>Please enter this OTP in the password reset form to continue.</p>
-
-              <div class="warning">
-                <strong>⚠️ Security Notice:</strong>
-                <ul style="margin: 10px 0; padding-left: 20px;">
-                  <li>Never share this OTP with anyone</li>
-                  <li>NIIT staff will never ask for your OTP</li>
-                  <li>If you didn't request this, please ignore this email</li>
-                </ul>
-              </div>
-
-              <p>If you didn't request a password reset, you can safely ignore this email.</p>
-            </div>
-            <div class="footer">
-              <p>© 2025 National Institute of Technology</p>
-              <p>This is an automated email. Please do not reply.</p>
-            </div>
-          </div>
-        </body>
-        </html>
-      `
+      html: `<div style="font-family:Arial;padding:20px;"><h2>🔐 Password Reset</h2><p>Hello ${user.firstname},</p><p>Your OTP is: <strong style="font-size:24px;color:#667eea;">${otp}</strong></p><p>Valid for 10 minutes.</p></div>`
     };
 
     try {
       await transporter.sendMail(mailOptions);
-      console.log(`✅ OTP email sent successfully to ${email}`);
-      console.log(`✅ ================================================\n`);
-      
-      res.json({ 
-        success: true, 
-        message: 'OTP sent to your email. Please check your inbox.',
-        email: email
-      });
-    } catch (emailError) {
-      console.error('❌ Email send error:', emailError.message);
-      
-      // For development: still return success with OTP in console
-      console.log(`⚠️ Email failed, but OTP generated: ${otp}`);
-      console.log(`✅ ================================================\n`);
-      
-      res.json({ 
-        success: true, 
-        message: 'OTP generated (Email service unavailable - check console)',
-        email: email,
-        devOtp: otp // Only for development! Remove in production
-      });
+      res.json({ success: true, message: 'OTP sent to your email', email });
+    } catch (emailErr) {
+      console.log('⚠️ Email failed, OTP:', otp);
+      res.json({ success: true, message: 'OTP generated (check console)', email, devOtp: otp });
     }
-    
   } catch (err) {
-    console.error('❌ Send OTP error:', err.message);
-    res.status(500).json({ error: 'Failed to process request: ' + err.message });
+    res.status(500).json({ error: err.message });
   }
 });
 
@@ -200,48 +248,19 @@ app.post('/api/forgot-password/send-otp', async (req, res) => {
 app.post('/api/forgot-password/verify-otp', async (req, res) => {
   try {
     const { email, otp } = req.body;
-    
-    console.log(`\n🔍 ========== VERIFY OTP ==========`);
-    console.log(`🔍 Email: ${email}`);
-    console.log(`🔍 OTP: ${otp}`);
-
-    if (!email || !otp) {
-      return res.status(400).json({ error: 'Email and OTP are required' });
-    }
-
-    const storedData = otpStore.get(email.toLowerCase());
-    
-    if (!storedData) {
-      console.log(`❌ No OTP found for ${email}`);
-      return res.status(400).json({ error: 'OTP expired or not requested' });
-    }
-
-    // Check expiration
-    if (Date.now() > storedData.expiresAt) {
-      otpStore.delete(email.toLowerCase());
-      console.log(`❌ OTP expired for ${email}`);
-      return res.status(400).json({ error: 'OTP has expired. Please request a new one.' });
-    }
-
-    // Verify OTP
-    if (storedData.otp !== otp) {
-      console.log(`❌ Invalid OTP for ${email}. Expected: ${storedData.otp}, Got: ${otp}`);
-      return res.status(400).json({ error: 'Invalid OTP. Please try again.' });
-    }
-
-    console.log(`✅ OTP verified successfully for ${email}`);
-    console.log(`✅ Username: ${storedData.username}`);
-    console.log(`✅ ======================================\n`);
-    
-    res.json({ 
-      success: true, 
-      message: 'OTP verified successfully',
-      username: storedData.username
+    const user = await User.findOne({
+      email: email.toLowerCase(),
+      resetOTP: otp,
+      resetOTPExpires: { $gt: new Date() }
     });
-    
+
+    if (!user) {
+      return res.status(400).json({ error: 'Invalid or expired OTP' });
+    }
+
+    res.json({ success: true, message: 'OTP verified', username: user.username });
   } catch (err) {
-    console.error('❌ Verify OTP error:', err.message);
-    res.status(500).json({ error: 'Failed to verify OTP: ' + err.message });
+    res.status(500).json({ error: err.message });
   }
 });
 
@@ -249,72 +268,20 @@ app.post('/api/forgot-password/verify-otp', async (req, res) => {
 app.post('/api/forgot-password/reset-password', async (req, res) => {
   try {
     const { email, newPassword } = req.body;
-    
-    console.log(`\n🔑 ========== RESET PASSWORD ==========`);
-    console.log(`🔑 Email: ${email}`);
+    const user = await User.findOne({ email: email.toLowerCase() });
 
-    if (!email || !newPassword) {
-      return res.status(400).json({ error: 'Email and new password are required' });
-    }
-
-    // Get username from OTP store
-    const storedData = otpStore.get(email.toLowerCase());
-    
-    if (!storedData) {
-      console.log(`❌ Session expired for ${email}`);
-      return res.status(400).json({ error: 'Session expired. Please restart the process.' });
-    }
-
-    const username = storedData.username;
-
-    // Update password in users.xlsx
-    const filePath = path.join(__dirname, 'public', 'users.xlsx');
-    
-    if (!fs.existsSync(filePath)) {
-      console.log(`❌ Users file not found`);
-      return res.status(404).json({ error: 'User database not found' });
-    }
-
-    const workbook = new ExcelJS.Workbook();
-    await workbook.xlsx.readFile(filePath);
-    const worksheet = workbook.worksheets[0];
-    
-    let passwordUpdated = false;
-    
-    worksheet.eachRow({ includeEmpty: false }, (row, rowNumber) => {
-      if (rowNumber > 1) {
-        const rowUsername = row.getCell(1).value?.toString().trim();
-        if (rowUsername === username) {
-          row.getCell(2).value = newPassword; // Update password
-          passwordUpdated = true;
-          console.log(`✅ Password updated for username: ${username}`);
-        }
-      }
-    });
-
-    if (!passwordUpdated) {
-      console.log(`❌ Username not found: ${username}`);
+    if (!user) {
       return res.status(404).json({ error: 'User not found' });
     }
 
-    // Save updated workbook
-    await workbook.xlsx.writeFile(filePath);
-    
-    // Clear OTP from store
-    otpStore.delete(email.toLowerCase());
-    
-    console.log(`✅ Password reset successful for ${username}`);
-    console.log(`✅ OTP cleared from store`);
-    console.log(`✅ ======================================\n`);
-    
-    res.json({ 
-      success: true, 
-      message: 'Password reset successfully. You can now login with your new password.'
-    });
-    
+    user.password = newPassword;
+    user.resetOTP = null;
+    user.resetOTPExpires = null;
+    await user.save();
+
+    res.json({ success: true, message: 'Password reset successfully' });
   } catch (err) {
-    console.error('❌ Reset password error:', err.message);
-    res.status(500).json({ error: 'Failed to reset password: ' + err.message });
+    res.status(500).json({ error: err.message });
   }
 });
 
@@ -322,155 +289,95 @@ app.post('/api/forgot-password/reset-password', async (req, res) => {
 // USERS ROUTES
 // ========================================
 
-// Login Route
-app.post('/api/login', async (req, res) => {
+// Get all users
+app.get('/api/users', async (req, res) => {
   try {
-    const { username, password } = req.body;
-    
-    console.log(`\n🔐 ========== LOGIN ATTEMPT ==========`);
-    console.log(`👤 Username: ${username}`);
-
-    if (!username || !password) {
-      console.log(`❌ Missing credentials`);
-      return res.status(400).json({ error: 'Username and password required' });
-    }
-
-    const filePath = path.join(__dirname, 'public', 'users.xlsx');
-    
-    if (!fs.existsSync(filePath)) {
-      console.log(`❌ Users file not found`);
-      return res.status(404).json({ error: 'User database not found' });
-    }
-
-    const workbook = new ExcelJS.Workbook();
-    await workbook.xlsx.readFile(filePath);
-    const worksheet = workbook.worksheets[0];
-    
-    let userFound = null;
-    
-    worksheet.eachRow({ includeEmpty: false }, (row, rowNumber) => {
-      if (rowNumber > 1) {
-        const rowUsername = row.getCell(1).value?.toString().trim();
-        const rowPassword = row.getCell(2).value?.toString().trim();
-        
-        if (rowUsername === username && rowPassword === password) {
-          userFound = {
-            username: rowUsername,
-            firstname: row.getCell(3).value?.toString().trim(),
-            lastname: row.getCell(4).value?.toString().trim(),
-            email: row.getCell(5).value?.toString().trim(),
-            Role: row.getCell(6).value?.toString().trim()
-          };
-        }
-      }
-    });
-
-    if (userFound) {
-      console.log(`✅ Login successful for ${username}`);
-      console.log(`✅ Role: ${userFound.Role}`);
-      console.log(`✅ ====================================\n`);
-      res.json({ success: true, user: userFound });
-    } else {
-      console.log(`❌ Invalid credentials for ${username}`);
-      console.log(`❌ ====================================\n`);
-      res.status(401).json({ error: 'Invalid username or password' });
-    }
-    
+    const users = await User.find({ isActive: true }).sort({ createdAt: -1 });
+    const formatted = users.map(u => ({
+      _id: u._id,
+      username: u.username,
+      password: u.password,
+      firstname: u.firstname,
+      lastname: u.lastname,
+      email: u.email,
+      mobile: u.mobile || '',
+      Role: u.role
+    }));
+    res.json(formatted);
   } catch (err) {
-    console.error('❌ Login error:', err.message);
-    res.status(500).json({ error: 'Login failed: ' + err.message });
+    res.status(500).json({ error: err.message });
   }
 });
 
-// Get Users
-app.get('/api/users.xlsx', (req, res) => {
-  const filePath = path.join(__dirname, 'public', 'users.xlsx');
-  
-  console.log(`\n📤 ========== SERVING USERS FILE ==========`);
-  
-  if (fs.existsSync(filePath)) {
-    console.log(`✅ Sending users.xlsx`);
-    res.sendFile(filePath);
-  } else {
-    console.log(`⚠️ Creating new users.xlsx...`);
-    const workbook = new ExcelJS.Workbook();
-    const worksheet = workbook.addWorksheet('Users');
-    
-    // Headers
-    worksheet.addRow(['Username', 'Password', 'First Name', 'Last Name', 'Email', 'Role']);
-    worksheet.getRow(1).font = { bold: true };
-    
-    // Default admin user
-    worksheet.addRow(['admin', 'admin123', 'Admin', 'User', 'admin@niit.com', 'Admin']);
-    
-    worksheet.columns = [
-      { width: 15 }, { width: 15 }, { width: 18 }, { width: 18 },
-      { width: 25 }, { width: 10 }
-    ];
-    
-    workbook.xlsx.writeFile(filePath).then(() => {
-      console.log(`✅ Created users.xlsx with default admin`);
-      res.sendFile(filePath);
-    }).catch(err => {
-      console.error('❌ Error creating file:', err);
-      res.status(500).json({ error: 'Failed to create file' });
+// Create user
+app.post('/api/users', async (req, res) => {
+  try {
+    const { username, password, firstname, lastname, email, mobile, Role } = req.body;
+    const user = new User({
+      username: username.toLowerCase(),
+      password,
+      firstname,
+      lastname,
+      email: email.toLowerCase(),
+      mobile,
+      role: Role || 'User'
     });
+    await user.save();
+    res.status(201).json({ success: true, user });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
 });
 
-// Update Users
+// Update user
+app.put('/api/users/:id', async (req, res) => {
+  try {
+    const user = await User.findByIdAndUpdate(req.params.id, {
+      ...req.body,
+      role: req.body.Role
+    }, { new: true });
+    res.json({ success: true, user });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Delete user
+app.delete('/api/users/:id', async (req, res) => {
+  try {
+    await User.findByIdAndUpdate(req.params.id, { isActive: false });
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Bulk update users (for backward compatibility)
 app.post('/api/update-users', async (req, res) => {
   try {
-    // Frontend sends: { users: [...] }
     const users = req.body.users || req.body;
-    
-    console.log(`\n💾 ========== UPDATING USERS ==========`);
-    console.log(`💾 Request body type:`, Array.isArray(req.body) ? 'Array' : 'Object');
-    console.log(`💾 Users array:`, Array.isArray(users) ? 'Yes' : 'No');
-    console.log(`💾 Total users: ${users.length}`);
+    console.log(`\n💾 ========== BULK UPDATE USERS ==========`);
+    console.log(`💾 Total: ${users.length}`);
 
-    if (!Array.isArray(users)) {
-      console.error('❌ Users is not an array:', users);
-      return res.status(400).json({ error: 'Invalid payload: users must be an array' });
+    for (const userData of users) {
+      await User.findOneAndUpdate(
+        { username: userData.username.toLowerCase() },
+        {
+          password: userData.password,
+          firstname: userData.firstname,
+          lastname: userData.lastname || '',
+          email: userData.email?.toLowerCase(),
+          mobile: userData.mobile || '',
+          role: userData.Role || 'User',
+          isActive: true
+        },
+        { upsert: true, new: true }
+      );
     }
 
-    const filePath = path.join(__dirname, 'public', 'users.xlsx');
-    const workbook = new ExcelJS.Workbook();
-    const worksheet = workbook.addWorksheet('Users');
-    
-    // Headers
-    worksheet.addRow(['Username', 'Password', 'First Name', 'Last Name', 'Email', 'Mobile', 'Role']);
-    worksheet.getRow(1).font = { bold: true };
-    
-    // Add users
-    users.forEach(user => {
-      worksheet.addRow([
-        user.username,
-        user.password,
-        user.firstname,
-        user.lastname,
-        user.email,
-        user.mobile || '',
-        user.Role
-      ]);
-    });
-    
-    // Column widths
-    worksheet.columns = [
-      { width: 15 }, { width: 15 }, { width: 18 }, { width: 18 },
-      { width: 25 }, { width: 15 }, { width: 10 }
-    ];
-
-    await workbook.xlsx.writeFile(filePath);
-    
-    console.log(`✅ Users file updated: ${filePath}`);
-    console.log(`✅ ====================================\n`);
-    
     res.json({ success: true, message: 'Users updated successfully' });
-    
   } catch (err) {
-    console.error('❌ Update users error:', err.message);
-    res.status(500).json({ error: 'Failed to save: ' + err.message });
+    res.status(500).json({ error: err.message });
   }
 });
 
@@ -478,97 +385,64 @@ app.post('/api/update-users', async (req, res) => {
 // CENTERS ROUTES
 // ========================================
 
-// Get Centers
-app.get('/api/centers.xlsx', (req, res) => {
-  const filePath = path.join(__dirname, 'public', 'centers.xlsx');
-  
-  console.log(`\n📤 ========== SERVING CENTERS FILE ==========`);
-  
-  if (fs.existsSync(filePath)) {
-    console.log(`✅ Sending centers.xlsx`);
-    res.sendFile(filePath);
-  } else {
-    console.log(`⚠️ Creating new centers.xlsx...`);
-    const workbook = new ExcelJS.Workbook();
-    const worksheet = workbook.addWorksheet('Centers');
-    
-    // Headers
-    worksheet.addRow([
-      'Center Code',
-      'Center Name',
-      'CH Name',
-      'Geolocation',
-      'Center Head Name',
-      'Zonal Head Name'
-    ]);
-    worksheet.getRow(1).font = { bold: true };
-    
-    worksheet.columns = [
-      { width: 15 }, { width: 25 }, { width: 18 }, { width: 25 },
-      { width: 20 }, { width: 20 }
-    ];
-    
-    workbook.xlsx.writeFile(filePath).then(() => {
-      console.log(`✅ Created centers.xlsx`);
-      res.sendFile(filePath);
-    }).catch(err => {
-      console.error('❌ Error creating file:', err);
-      res.status(500).json({ error: 'Failed to create file' });
-    });
+// Get all centers
+app.get('/api/centers', async (req, res) => {
+  try {
+    const centers = await Center.find({ isActive: true }).sort({ centerCode: 1 });
+    const formatted = centers.map(c => ({
+      _id: c._id,
+      centerCode: c.centerCode,
+      centerName: c.centerName,
+      chName: c.chName || '',
+      geolocation: c.geolocation || '',
+      centerHeadName: c.centerHeadName || '',
+      zonalHeadName: c.zonalHeadName || ''
+    }));
+    res.json(formatted);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
 });
 
-// Update Centers
+// Create center
+app.post('/api/centers', async (req, res) => {
+  try {
+    const center = new Center({
+      ...req.body,
+      centerCode: req.body.centerCode.toUpperCase()
+    });
+    await center.save();
+    res.status(201).json({ success: true, center });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Bulk update centers
 app.post('/api/update-centers', async (req, res) => {
   try {
-    const centers = req.body;
-    
-    console.log(`\n💾 ========== UPDATING CENTERS ==========`);
-    console.log(`💾 Total centers: ${centers.length}`);
+    const centers = Array.isArray(req.body) ? req.body : req.body.centers;
+    console.log(`\n💾 ========== BULK UPDATE CENTERS ==========`);
+    console.log(`💾 Total: ${centers.length}`);
 
-    const filePath = path.join(__dirname, 'public', 'centers.xlsx');
-    const workbook = new ExcelJS.Workbook();
-    const worksheet = workbook.addWorksheet('Centers');
-    
-    // Headers
-    worksheet.addRow([
-      'Center Code',
-      'Center Name',
-      'CH Name',
-      'Geolocation',
-      'Center Head Name',
-      'Zonal Head Name'
-    ]);
-    worksheet.getRow(1).font = { bold: true };
-    
-    // Add centers
-    centers.forEach(center => {
-      worksheet.addRow([
-        center.centerCode,
-        center.centerName,
-        center.chName,
-        center.geolocation,
-        center.centerHeadName,
-        center.zonalHeadName
-      ]);
-    });
-    
-    // Column widths
-    worksheet.columns = [
-      { width: 15 }, { width: 25 }, { width: 18 }, { width: 25 },
-      { width: 20 }, { width: 20 }
-    ];
+    for (const centerData of centers) {
+      await Center.findOneAndUpdate(
+        { centerCode: centerData.centerCode.toUpperCase() },
+        {
+          centerName: centerData.centerName,
+          chName: centerData.chName || '',
+          geolocation: centerData.geolocation || '',
+          centerHeadName: centerData.centerHeadName || '',
+          zonalHeadName: centerData.zonalHeadName || '',
+          isActive: true
+        },
+        { upsert: true, new: true }
+      );
+    }
 
-    await workbook.xlsx.writeFile(filePath);
-    
-    console.log(`✅ Centers file updated: ${filePath}`);
-    console.log(`✅ ======================================\n`);
-    
     res.json({ success: true, message: 'Centers updated successfully' });
-    
   } catch (err) {
-    console.error('❌ Update centers error:', err.message);
-    res.status(500).json({ error: 'Failed to save: ' + err.message });
+    res.status(500).json({ error: err.message });
   }
 });
 
@@ -576,403 +450,463 @@ app.post('/api/update-centers', async (req, res) => {
 // AUDIT REPORTS ROUTES
 // ========================================
 
-// Get Audit Reports
-app.get('/api/audit-reports.xlsx', (req, res) => {
-  const filePath = path.join(__dirname, 'public', 'audit-reports.xlsx');
-  
-  console.log(`\n📤 ========== SERVING AUDIT REPORTS ==========`);
-  
-  if (fs.existsSync(filePath)) {
-    console.log(`✅ Sending audit-reports.xlsx`);
-    res.sendFile(filePath);
-  } else {
-    console.log(`⚠️ Creating new audit-reports.xlsx...`);
-    const workbook = new ExcelJS.Workbook();
-    const worksheet = workbook.addWorksheet('Audit Reports');
-    
-    // Headers with NEW columns for submission tracking
-    worksheet.addRow([
-      'Center Code',
-      'Center Name',
-      'CH Name',
-      'Geolocation',
-      'Center Head Name',
-      'Zonal Head Name',
-      'Front Office Score',
-      'Delivery Process Score',
-      'Placement Score',
-      'Management Score',
-      'Grand Total',
-      'Audit Date',
-      'Audit Data JSON',
-      'Submission Status',    // NEW
-      'Current Status',       // NEW
-      'Approved By',          // NEW
-      'Submitted Date',       // NEW
-      'Remarks Text'          // NEW - Custom editable remarks
-    ]);
-    worksheet.getRow(1).font = { bold: true };
-    
-    worksheet.columns = [
-      { width: 15 }, { width: 25 }, { width: 18 }, { width: 25 },
-      { width: 20 }, { width: 20 }, { width: 18 }, { width: 20 },
-      { width: 15 }, { width: 18 }, { width: 15 }, { width: 15 },
-      { width: 50 }, { width: 20 }, { width: 25 }, { width: 20 }, { width: 15 }, { width: 30 }
-    ];
-    
-    workbook.xlsx.writeFile(filePath).then(() => {
-      console.log(`✅ Created audit-reports.xlsx with submission columns`);
-      res.sendFile(filePath);
-    }).catch(err => {
-      console.error('❌ Error creating file:', err);
-      res.status(500).json({ error: 'Failed to create file' });
-    });
-  }
-});
-
-// ✅✅✅ NEW ENDPOINT: Save Audit Reports (Excel Buffer) ✅✅✅
-app.post('/api/save-audit-reports', (req, res) => {
+// Get all audit reports
+app.get('/api/audit-reports', async (req, res) => {
   try {
-    console.log(`\n💾 ========== SAVING AUDIT REPORTS (BUFFER) ==========`);
-    
-    const buffer = req.body;
-    const filePath = path.join(__dirname, 'public', 'audit-reports.xlsx');
-    
-    // Write buffer to file
-    fs.writeFileSync(filePath, buffer);
-    
-    console.log(`✅ Audit reports Excel file saved: ${filePath}`);
-    console.log(`✅ File size: ${buffer.length} bytes`);
-    console.log(`✅ ====================================================\n`);
-    
-    res.status(200).json({ 
-      success: true, 
-      message: 'Audit reports saved successfully' 
-    });
-    
-  } catch (error) {
-    console.error('❌ Save audit reports error:', error.message);
-    res.status(500).json({ 
-      success: false, 
-      error: error.message 
-    });
+    const reports = await AuditReport.find().sort({ createdAt: -1 });
+    res.json(reports);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
 });
 
-// Save Audit Report (JSON)
+// Get pending count
+app.get('/api/audit-reports/pending/count', async (req, res) => {
+  try {
+    const count = await AuditReport.countDocuments({ currentStatus: 'Pending with Supervisor' });
+    res.json({ count });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Get pending approvals
+app.get('/api/audit-reports/pending', async (req, res) => {
+  try {
+    const reports = await AuditReport.find({ currentStatus: 'Pending with Supervisor' }).sort({ submittedDate: 1 });
+    res.json(reports);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Save/Update audit report
 app.post('/api/save-audit-report', async (req, res) => {
   try {
-    const reportData = req.body;
-    
-    console.log(`\n💾 ========== SAVING AUDIT REPORT (JSON) ==========`);
-    console.log(`💾 Center: ${reportData.centerCode} - ${reportData.centerName}`);
-    console.log(`💾 Grand Total: ${reportData.grandTotal}/100`);
+    const data = req.body;
+    console.log(`\n💾 ========== SAVING AUDIT REPORT ==========`);
+    console.log(`💾 Center: ${data.centerCode} - ${data.centerName}`);
+    console.log(`💾 Grand Total: ${data.grandTotal}/100`);
 
-    const filePath = path.join(__dirname, 'public', 'audit-reports.xlsx');
-    
-    let workbook;
-    let worksheet;
-    
-    // Load existing or create new
-    if (fs.existsSync(filePath)) {
-      workbook = new ExcelJS.Workbook();
-      await workbook.xlsx.readFile(filePath);
-      worksheet = workbook.worksheets[0];
+    // Parse audit data JSON if provided
+    let auditData = {};
+    if (data.auditDataJson) {
+      try {
+        auditData = typeof data.auditDataJson === 'string' ? JSON.parse(data.auditDataJson) : data.auditDataJson;
+      } catch (e) {}
+    }
+
+    // Calculate audit status
+    const grandTotalNum = parseFloat(data.grandTotal) || 0;
+    let auditStatus = 'Non-Compliant';
+    if (grandTotalNum >= 80) auditStatus = 'Compliant';
+    else if (grandTotalNum >= 65) auditStatus = 'Amber';
+
+    // Checkpoint names for readable display
+    const checkpointNames = {
+      FO1: "Enquires Entered in Pulse",
+      FO2: "Enrolment form available in Pulse",
+      FO3: "Pre assessment Available",
+      FO4: "Documents uploaded in Pulse",
+      FO5: "Availability of Marketing Material",
+      DP1: "Batch file maintained",
+      DP2: "Batch Heath Card available",
+      DP3: "Attendance marked in EDL sheets",
+      DP4: "BMS maintained",
+      DP5: "FACT Certificate available",
+      DP6: "Post Assessment if applicable",
+      DP7: "Appraisal sheet maintained",
+      DP8: "Appraisal status in Pulse",
+      DP9: "Certification Status",
+      DP10: "Student signature for certificates",
+      DP11: "System vs actual certificate date",
+      PP1: "Student Placement Response",
+      PP2: "CGT/Guest Lecture/Industry Visit",
+      PP3: "Placement Bank & Aging",
+      PP4: "Placement Proof Upload",
+      MP1: "Courseware issue/LMS Usage",
+      MP2: "TIRM details register",
+      MP3: "Monthly Centre Review Meeting",
+      MP4: "Physical asset verification",
+      MP5: "Verification of bill authenticity"
+    };
+
+    // Build readable checkpoint data
+    const buildCheckpointTable = (prefix, areaName, checkpoints) => {
+      let table = `\n📋 ${areaName}\n`;
+      table += `┌────────┬────────────────────────────────────────┬─────────┬───────────┬─────────┬─────────┐\n`;
+      table += `│ ID     │ Checkpoint                             │ Samples │ Compliant │ %       │ Score   │\n`;
+      table += `├────────┼────────────────────────────────────────┼─────────┼───────────┼─────────┼─────────┤\n`;
       
-      // Check if report exists for this center
-      let reportExists = false;
-      let existingRowNumber = null;
+      checkpoints.forEach(cpId => {
+        const cp = data[cpId] || auditData[cpId] || {};
+        const name = (checkpointNames[cpId] || cpId).substring(0, 38).padEnd(38);
+        const samples = (cp.totalSamples || '-').toString().padStart(7);
+        const compliant = (cp.samplesCompliant || '-').toString().padStart(9);
+        const percent = cp.compliantPercent ? `${cp.compliantPercent.toFixed(1)}%`.padStart(7) : '    -  ';
+        const score = cp.score ? cp.score.toFixed(2).padStart(7) : '   0.00';
+        table += `│ ${cpId.padEnd(6)} │ ${name} │${samples} │${compliant} │${percent} │${score} │\n`;
+      });
       
-      worksheet.eachRow({ includeEmpty: false }, (row, rowNumber) => {
-        if (rowNumber > 1) {
-          const centerCode = row.getCell(1).value?.toString().trim();
-          if (centerCode === reportData.centerCode) {
-            reportExists = true;
-            existingRowNumber = rowNumber;
-          }
+      table += `└────────┴────────────────────────────────────────┴─────────┴───────────┴─────────┴─────────┘`;
+      return table;
+    };
+
+    const frontOfficeTable = buildCheckpointTable('FO', 'FRONT OFFICE (Max: 30)', ['FO1','FO2','FO3','FO4','FO5']);
+    const deliveryTable = buildCheckpointTable('DP', 'DELIVERY PROCESS (Max: 40)', ['DP1','DP2','DP3','DP4','DP5','DP6','DP7','DP8','DP9','DP10','DP11']);
+    const placementTable = data.placementApplicable === 'no' ? '\n📋 PLACEMENT PROCESS: NA (Not Applicable)' : buildCheckpointTable('PP', 'PLACEMENT PROCESS (Max: 15)', ['PP1','PP2','PP3','PP4']);
+    const managementTable = buildCheckpointTable('MP', 'MANAGEMENT PROCESS (Max: 15)', ['MP1','MP2','MP3','MP4','MP5']);
+
+    const updateData = {
+      // ========== READABLE REPORT (VIEW THIS!) ==========
+      _REPORT_VIEW: `
+╔══════════════════════════════════════════════════════════════════════════════╗
+║                           📊 AUDIT REPORT                                     ║
+╠══════════════════════════════════════════════════════════════════════════════╣
+║  Center Code    : ${data.centerCode.padEnd(20)}                              ║
+║  Center Name    : ${(data.centerName || '').substring(0,20).padEnd(20)}                              ║
+║  CH Name        : ${(data.chName || '-').substring(0,20).padEnd(20)}                              ║
+║  Audit Date     : ${(data.auditDate || new Date().toLocaleDateString('en-GB')).padEnd(20)}                              ║
+╠══════════════════════════════════════════════════════════════════════════════╣
+║  📈 SCORES SUMMARY                                                            ║
+║  ─────────────────────────────────────────────────────────────────────────── ║
+║  Front Office     : ${parseFloat(data.frontOfficeScore || 0).toFixed(2).padStart(6)} / 30                                     ║
+║  Delivery Process : ${parseFloat(data.deliveryProcessScore || 0).toFixed(2).padStart(6)} / 40                                     ║
+║  Placement        : ${data.placementApplicable === 'no' ? '    NA     ' : parseFloat(data.placementScore || 0).toFixed(2).padStart(6) + ' / 15'}                                     ║
+║  Management       : ${parseFloat(data.managementScore || 0).toFixed(2).padStart(6)} / 15                                     ║
+║  ─────────────────────────────────────────────────────────────────────────── ║
+║  🎯 GRAND TOTAL   : ${grandTotalNum.toFixed(2).padStart(6)} / 100    Status: ${auditStatus.padEnd(15)}            ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+${frontOfficeTable}
+${deliveryTable}
+${placementTable}
+${managementTable}
+`,
+      
+      // ========== CENTER INFO ==========
+      centerCode: data.centerCode,
+      centerName: data.centerName,
+      chName: data.chName || '',
+      geolocation: data.geolocation || '',
+      centerHeadName: data.centerHeadName || '',
+      zonalHeadName: data.zonalHeadName || '',
+      
+      // ========== SCORES ==========
+      frontOfficeScore: parseFloat(data.frontOfficeScore) || 0,
+      deliveryProcessScore: parseFloat(data.deliveryProcessScore) || 0,
+      placementScore: parseFloat(data.placementScore) || 0,
+      placementApplicable: data.placementApplicable || 'yes',
+      managementScore: parseFloat(data.managementScore) || 0,
+      grandTotal: grandTotalNum,
+      auditStatus: auditStatus,
+      
+      // ========== STATUS ==========
+      auditDateString: data.auditDate || new Date().toLocaleDateString('en-GB'),
+      submissionStatus: data.submissionStatus || 'Not Submitted',
+      currentStatus: data.currentStatus || 'Not Submitted',
+      approvedBy: data.approvedBy || '',
+      submittedDate: data.submittedDate || '',
+      remarksText: data.remarksText || '',
+      
+      // Reset email sent status when report is edited
+      emailSent: false,
+      emailSentDate: '',
+      emailSentTo: '',
+      
+      // ========== CHECKPOINT DATA ==========
+      ...(['FO1','FO2','FO3','FO4','FO5','DP1','DP2','DP3','DP4','DP5','DP6','DP7','DP8','DP9','DP10','DP11','PP1','PP2','PP3','PP4','MP1','MP2','MP3','MP4','MP5']
+        .reduce((acc, key) => { 
+          if(data[key]) acc[key] = data[key]; 
+          else if(auditData[key]) acc[key] = auditData[key]; 
+          return acc; 
+        }, {}))
+    };
+    
+    console.log('💾 Saving placementApplicable:', data.placementApplicable);
+
+    const report = await AuditReport.findOneAndUpdate(
+      { centerCode: data.centerCode },
+      updateData,
+      { upsert: true, new: true }
+    );
+
+    console.log(`✅ Report saved for ${data.centerCode}`);
+    res.json({ success: true, message: 'Audit report saved successfully', report });
+  } catch (err) {
+    console.error('❌ Save error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Bulk save reports (for Excel buffer compatibility)
+app.post('/api/save-audit-reports', async (req, res) => {
+  try {
+    // This endpoint was for Excel buffer, now we just acknowledge it
+    console.log('📋 Received bulk save request');
+    res.json({ success: true, message: 'Reports processed' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Submit for approval
+app.post('/api/audit-reports/:id/submit', async (req, res) => {
+  try {
+    const { userName } = req.body;
+    const report = await AuditReport.findById(req.params.id);
+    if (!report) {
+      return res.status(404).json({ error: 'Report not found' });
+    }
+
+    report.submissionStatus = 'Submitted';
+    report.currentStatus = 'Pending with Supervisor';
+    report.submittedDate = new Date().toLocaleString('en-GB');
+    await report.save();
+
+    res.json({ success: true, report });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Approve report
+app.post('/api/audit-reports/:id/approve', async (req, res) => {
+  try {
+    const { adminName, remarks } = req.body;
+    const report = await AuditReport.findById(req.params.id);
+    if (!report) {
+      return res.status(404).json({ error: 'Report not found' });
+    }
+
+    report.currentStatus = 'Approved';
+    report.approvedBy = adminName;
+    report.remarksText = remarks || '';
+    await report.save();
+
+    res.json({ success: true, report });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Reject report
+app.post('/api/audit-reports/:id/reject', async (req, res) => {
+  try {
+    const { adminName, remarks } = req.body;
+    const report = await AuditReport.findById(req.params.id);
+    if (!report) {
+      return res.status(404).json({ error: 'Report not found' });
+    }
+
+    report.currentStatus = 'Sent Back';
+    report.remarksText = remarks;
+    await report.save();
+
+    res.json({ success: true, report });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Center User - Save center remarks
+app.put('/api/audit-reports/:id/center-remarks', async (req, res) => {
+  try {
+    console.log('\n💬 ========== SAVING CENTER HEAD REMARKS ==========');
+    const { centerRemarks, checkpointRemarks, centerUserName } = req.body;
+    console.log('💬 Report ID:', req.params.id);
+    console.log('💬 Center User:', centerUserName);
+    console.log('💬 Checkpoint Remarks received:', checkpointRemarks);
+    
+    const report = await AuditReport.findById(req.params.id);
+    if (!report) {
+      console.log('❌ Report not found!');
+      return res.status(404).json({ error: 'Report not found' });
+    }
+
+    // Save overall center remarks
+    if (centerRemarks !== undefined) {
+      report.centerRemarks = centerRemarks;
+    }
+    report.centerRemarksBy = centerUserName;
+    report.centerRemarksDate = new Date().toLocaleString('en-GB');
+    
+    // Save checkpoint-wise center head remarks
+    if (checkpointRemarks && Object.keys(checkpointRemarks).length > 0) {
+      const checkpointIds = ['FO1','FO2','FO3','FO4','FO5','DP1','DP2','DP3','DP4','DP5','DP6','DP7','DP8','DP9','DP10','DP11','PP1','PP2','PP3','PP4','MP1','MP2','MP3','MP4','MP5'];
+      
+      checkpointIds.forEach(cpId => {
+        if (checkpointRemarks[cpId]) {
+          console.log(`💬 Saving ${cpId}: "${checkpointRemarks[cpId]}"`);
+          
+          // Get existing checkpoint data or create new object
+          const existingData = report[cpId] ? report[cpId].toObject() : {};
+          
+          // Add centerHeadRemarks to existing data
+          existingData.centerHeadRemarks = checkpointRemarks[cpId];
+          
+          // Set the updated object back
+          report[cpId] = existingData;
+          
+          // Mark as modified for Mongoose to detect change
+          report.markModified(cpId);
+        }
+      });
+    }
+    
+    await report.save();
+
+    console.log(`✅ Center Head remarks saved for ${report.centerCode}`);
+    console.log('💬 =============================================\n');
+    res.json({ success: true, report });
+  } catch (err) {
+    console.error('❌ Error saving center remarks:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ========================================
+// EMAIL ROUTE
+// ========================================
+app.post('/api/send-audit-email', async (req, res) => {
+  try {
+    const { to, cc, subject, message, reportData, auditUserEmail } = req.body;
+    console.log(`\n📧 ========== SENDING AUDIT EMAIL ==========`);
+    console.log(`📧 To: ${to}`);
+    console.log(`📧 CC: ${cc || 'None'}`);
+    console.log(`📧 Report: ${reportData?.centerName}`);
+
+    // Generate PDF from detailed report
+    let pdfBuffer = null;
+    try {
+      console.log('📄 Generating PDF...');
+      const browser = await puppeteer.launch({ 
+        headless: 'new',
+        args: [
+          '--no-sandbox', 
+          '--disable-setuid-sandbox',
+          '--disable-dev-shm-usage',
+          '--disable-accelerated-2d-canvas',
+          '--disable-gpu',
+          '--no-first-run',
+          '--no-zygote',
+          '--single-process'
+        ]
+      });
+      const page = await browser.newPage();
+      
+      // Disable images and CSS for faster loading
+      await page.setRequestInterception(true);
+      page.on('request', (req) => {
+        if (req.resourceType() === 'image' || req.resourceType() === 'font') {
+          req.abort();
+        } else {
+          req.continue();
         }
       });
       
-      if (reportExists && existingRowNumber) {
-        // Update existing report
-        console.log(`📝 Updating existing report for ${reportData.centerCode}`);
-        const row = worksheet.getRow(existingRowNumber);
-        row.getCell(1).value = reportData.centerCode;
-        row.getCell(2).value = reportData.centerName;
-        row.getCell(3).value = reportData.chName;
-        row.getCell(4).value = reportData.geolocation;
-        row.getCell(5).value = reportData.centerHeadName;
-        row.getCell(6).value = reportData.zonalHeadName;
-        row.getCell(7).value = reportData.frontOfficeScore;
-        row.getCell(8).value = reportData.deliveryProcessScore;
-        row.getCell(9).value = reportData.placementScore;
-        row.getCell(10).value = reportData.managementScore;
-        row.getCell(11).value = reportData.grandTotal;
-        row.getCell(12).value = reportData.auditDate;
-        row.getCell(13).value = reportData.auditDataJson;
-        row.commit();
-      } else {
-        // Add new report
-        console.log(`➕ Adding new report for ${reportData.centerCode}`);
-        worksheet.addRow([
-          reportData.centerCode,
-          reportData.centerName,
-          reportData.chName,
-          reportData.geolocation,
-          reportData.centerHeadName,
-          reportData.zonalHeadName,
-          reportData.frontOfficeScore,
-          reportData.deliveryProcessScore,
-          reportData.placementScore,
-          reportData.managementScore,
-          reportData.grandTotal,
-          reportData.auditDate,
-          reportData.auditDataJson,
-          'Not Submitted',  // Default submission status
-          'Not Submitted',  // Default current status
-          '',               // Approved by
-          ''                // Submitted date
-        ]);
-      }
-    } else {
-      // Create new workbook
-      console.log(`📄 Creating new audit-reports.xlsx`);
-      workbook = new ExcelJS.Workbook();
-      worksheet = workbook.addWorksheet('Audit Reports');
+      const pdfHTML = generatePDFHTML(reportData);
+      await page.setContent(pdfHTML, { 
+        waitUntil: 'domcontentloaded',
+        timeout: 60000 
+      });
       
-      // Headers
-      worksheet.addRow([
-        'Center Code',
-        'Center Name',
-        'CH Name',
-        'Geolocation',
-        'Center Head Name',
-        'Zonal Head Name',
-        'Front Office Score',
-        'Delivery Process Score',
-        'Placement Score',
-        'Management Score',
-        'Grand Total',
-        'Audit Date',
-        'Audit Data JSON',
-        'Submission Status',
-        'Current Status',
-        'Approved By',
-        'Submitted Date'
-      ]);
-      worksheet.getRow(1).font = { bold: true };
-      
-      // Add report
-      worksheet.addRow([
-        reportData.centerCode,
-        reportData.centerName,
-        reportData.chName,
-        reportData.geolocation,
-        reportData.centerHeadName,
-        reportData.zonalHeadName,
-        reportData.frontOfficeScore,
-        reportData.deliveryProcessScore,
-        reportData.placementScore,
-        reportData.managementScore,
-        reportData.grandTotal,
-        reportData.auditDate,
-        reportData.auditDataJson,
-        'Not Submitted',
-        'Not Submitted',
-        '',
-        ''
-      ]);
-      
-      // Column widths
-      worksheet.columns = [
-        { width: 15 }, { width: 25 }, { width: 18 }, { width: 25 },
-        { width: 20 }, { width: 20 }, { width: 18 }, { width: 20 },
-        { width: 15 }, { width: 18 }, { width: 15 }, { width: 15 },
-        { width: 50 }, { width: 20 }, { width: 25 }, { width: 20 }, { width: 15 }
-      ];
+      pdfBuffer = await page.pdf({ 
+        format: 'A4',
+        printBackground: true,
+        margin: { top: '20px', right: '20px', bottom: '20px', left: '20px' }
+      });
+      await browser.close();
+      console.log('📄 PDF generated successfully!');
+    } catch (pdfErr) {
+      console.error('⚠️ PDF generation failed:', pdfErr.message);
+      // Continue without PDF if generation fails
     }
 
-    // Save file
-    await workbook.xlsx.writeFile(filePath);
+    // Generate HTML email content
+    const emailHTML = generateEmailHTML(reportData, message);
+
+    const mailOptions = {
+      from: process.env.EMAIL_USER,
+      to: to,
+      cc: cc || undefined,
+      subject: subject || generateEmailSubject(reportData),
+      html: emailHTML,
+      attachments: pdfBuffer ? [{
+        filename: `Audit_Report_${reportData.centerCode}_${new Date().toISOString().split('T')[0]}.pdf`,
+        content: pdfBuffer,
+        contentType: 'application/pdf'
+      }] : []
+    };
+
+    await transporter.sendMail(mailOptions);
+    console.log('✅ Email sent successfully!');
     
-    console.log(`✅ File saved: ${filePath}`);
-    console.log(`✅ ==========================================\n`);
+    // Update report to mark email as sent
+    if (reportData?._id) {
+      await AuditReport.findByIdAndUpdate(reportData._id, {
+        emailSent: true,
+        emailSentDate: new Date().toLocaleString('en-GB'),
+        emailSentTo: to
+      });
+      console.log(`✅ Email sent flag updated for report: ${reportData._id}`);
+    }
     
-    res.json({ 
-      success: true, 
-      message: 'Audit report saved successfully'
-    });
-    
+    console.log('📧 ==========================================\n');
+    res.json({ success: true, message: 'Email sent successfully with PDF attachment!' });
   } catch (err) {
-    console.error('❌ Save audit error:', err.message);
-    res.status(500).json({ error: 'Failed to save: ' + err.message });
+    console.error('❌ Email error:', err.message);
+    res.status(500).json({ success: false, error: err.message });
   }
+});
+
+// ========================================
+// CENTERS ROUTES
+// ========================================
+
+// GET all centers
+app.get('/api/centers', async (req, res) => {
+  try {
+    const centers = await Center.find({ isActive: true }).sort({ centerCode: 1 });
+    console.log(`📍 Centers fetched: ${centers.length}`);
+    res.json(centers);
+  } catch (err) {
+    console.error('❌ Error fetching centers:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST create center
+app.post('/api/centers', async (req, res) => {
+  try {
+    const center = new Center(req.body);
+    await center.save();
+    console.log(`✅ Center created: ${center.centerCode}`);
+    res.json(center);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ========================================
+// HEALTH CHECK
+// ========================================
+app.get('/api/health', (req, res) => {
+  res.json({ status: 'healthy', database: 'MongoDB Atlas', timestamp: new Date().toISOString() });
 });
 
 // ========================================
 // START SERVER
 // ========================================
-
-// ✅ NEW ENDPOINT: Send Audit Report Email
-app.post('/api/send-audit-email', async (req, res) => {
-  try {
-    const { to, cc, subject, message, reportData } = req.body;
-
-    console.log(`\n📧 ========== SENDING AUDIT REPORT EMAIL ==========`);
-    console.log(`📧 To: ${to}`);
-    console.log(`📧 Cc: ${cc || 'None'}`);
-    console.log(`📧 Subject: ${subject}`);
-    console.log(`📧 Report: ${reportData?.centerName || 'N/A'}`);
-
-    if (!to) {
-      return res.status(400).json({ success: false, error: 'Recipient email is required' });
-    }
-
-    // Validate email format
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!emailRegex.test(to)) {
-      return res.status(400).json({ success: false, error: 'Invalid recipient email format' });
-    }
-
-    const mailOptions = {
-      from: 'Rythemaggarwal7840@gmail.com', // Your email
-      to: to,
-      cc: cc || undefined,
-      subject: subject || 'Audit Report',
-      html: `
-        <!DOCTYPE html>
-        <html>
-        <head>
-          <style>
-            body { font-family: Arial, sans-serif; background: #f4f4f4; margin: 0; padding: 20px; }
-            .container { max-width: 700px; margin: 0 auto; background: white; padding: 30px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
-            .header { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 25px; border-radius: 10px; text-align: center; margin-bottom: 20px; }
-            .header h1 { margin: 0; font-size: 24px; }
-            .content { padding: 20px 0; line-height: 1.8; }
-            .score-box { background: #f0f8ff; border: 2px solid #667eea; padding: 20px; margin: 20px 0; border-radius: 10px; }
-            .score-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin: 15px 0; }
-            .score-item { background: #f8f9fa; padding: 12px; border-radius: 8px; }
-            .score-label { color: #666; font-size: 13px; }
-            .score-value { font-size: 20px; font-weight: bold; color: #333; }
-            .grand-total { text-align: center; padding: 20px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border-radius: 10px; margin-top: 15px; }
-            .grand-total .value { font-size: 48px; font-weight: bold; }
-            .status-badge { display: inline-block; padding: 8px 20px; border-radius: 25px; font-weight: bold; font-size: 14px; }
-            .compliant { background: #d4edda; color: #155724; }
-            .amber { background: #fff3cd; color: #856404; }
-            .non-compliant { background: #f8d7da; color: #721c24; }
-            .footer { text-align: center; color: #666; font-size: 12px; margin-top: 30px; border-top: 1px solid #ddd; padding-top: 20px; }
-            pre { white-space: pre-wrap; background: #f8f9fa; padding: 20px; border-radius: 8px; font-family: inherit; line-height: 1.8; }
-          </style>
-        </head>
-        <body>
-          <div class="container">
-            <div class="header">
-              <h1>📋 Audit Report</h1>
-              <p style="margin: 10px 0 0 0; opacity: 0.9;">${reportData?.centerName || 'Center Name'}</p>
-            </div>
-            
-            <div class="content">
-              <pre>${message}</pre>
-              
-              ${reportData ? `
-              <div class="score-box">
-                <h3 style="margin: 0 0 15px 0; color: #333;">📊 Score Summary</h3>
-                <div class="score-grid">
-                  <div class="score-item">
-                    <div class="score-label">Front Office (30)</div>
-                    <div class="score-value">${reportData.frontOfficeScore}</div>
-                  </div>
-                  <div class="score-item">
-                    <div class="score-label">Delivery Process (40)</div>
-                    <div class="score-value">${reportData.deliveryProcessScore}</div>
-                  </div>
-                  <div class="score-item">
-                    <div class="score-label">Placement (15)</div>
-                    <div class="score-value">${reportData.placementScore}</div>
-                  </div>
-                  <div class="score-item">
-                    <div class="score-label">Management (15)</div>
-                    <div class="score-value">${reportData.managementScore}</div>
-                  </div>
-                </div>
-                
-                <div class="grand-total">
-                  <div style="font-size: 14px; opacity: 0.9;">Grand Total</div>
-                  <div class="value">${reportData.grandTotal}/100</div>
-                  <div style="margin-top: 10px;">
-                    <span class="status-badge ${
-                      parseFloat(reportData.grandTotal) >= 80 ? 'compliant' : 
-                      parseFloat(reportData.grandTotal) >= 65 ? 'amber' : 'non-compliant'
-                    }">
-                      ${
-                        parseFloat(reportData.grandTotal) >= 80 ? '✅ Compliant' : 
-                        parseFloat(reportData.grandTotal) >= 65 ? '⚠️ Amber' : '❌ Non-Compliant'
-                      }
-                    </span>
-                  </div>
-                </div>
-              </div>
-              ` : ''}
-            </div>
-            
-            <div class="footer">
-              <p>This is an automated email from the Audit Management System</p>
-              <p>Sent on: ${new Date().toLocaleString('en-GB')}</p>
-            </div>
-          </div>
-        </body>
-        </html>
-      `
-    };
-
-    console.log(`📧 Attempting to send email...`);
-    
-    await transporter.sendMail(mailOptions);
-    
-    console.log(`✅ Email sent successfully to ${to}`);
-    console.log(`✅ ================================================\n`);
-
-    res.json({ success: true, message: 'Email sent successfully' });
-
-  } catch (err) {
-    console.error('❌ Send email error:', err.message);
-    console.error('❌ Full error:', err);
-    
-    // Provide specific error messages
-    let errorMessage = err.message;
-    if (err.code === 'EAUTH') {
-      errorMessage = 'Email authentication failed! Check Gmail App Password.';
-    } else if (err.code === 'ESOCKET' || err.code === 'ETIMEDOUT') {
-      errorMessage = 'Connection to email server failed. Check internet connection.';
-    } else if (err.code === 'EENVELOPE') {
-      errorMessage = 'Invalid email address format.';
-    }
-    
-    res.status(500).json({ success: false, error: errorMessage });
-  }
-});
-
 app.listen(PORT, () => {
   console.log(`\n🚀 ========================================`);
-  console.log(`🚀 NIIT Backend Server Running`);
+  console.log(`🚀 NIIT Audit System - MongoDB Server`);
   console.log(`🚀 Port: http://localhost:${PORT}`);
-  console.log(`🚀 Public folder: ${publicDir}`);
   console.log(`🚀 ========================================`);
-  console.log(`\n✅ Available Routes:`);
-  console.log(`   📊 Users:`);
-  console.log(`      GET  /api/users.xlsx`);
-  console.log(`      POST /api/update-users`);
-  console.log(`      POST /api/login`);
-  console.log(`   🔐 Forgot Password:`);
-  console.log(`      POST /api/forgot-password/send-otp`);
-  console.log(`      POST /api/forgot-password/verify-otp`);
-  console.log(`      POST /api/forgot-password/reset-password`);
-  console.log(`   🏢 Centers:`);
-  console.log(`      GET  /api/centers.xlsx`);
-  console.log(`      POST /api/update-centers`);
-  console.log(`   📋 Audit Reports:`);
-  console.log(`      GET  /api/audit-reports.xlsx`);
-  console.log(`      POST /api/save-audit-report`);
-  console.log(`      POST /api/save-audit-reports ⭐ NEW!`);
+  console.log(`\n✅ API Routes Ready!`);
+  console.log(`   POST /api/login`);
+  console.log(`   GET  /api/users`);
+  console.log(`   GET  /api/centers`);
+  console.log(`   GET  /api/audit-reports`);
+  console.log(`   POST /api/save-audit-report`);
   console.log(`\n========================================\n`);
 });

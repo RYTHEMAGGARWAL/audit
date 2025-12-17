@@ -26,40 +26,21 @@ const Admin = () => {
     }
   }, [loggedUser.Role]);
 
+  // ========================================
+  // LOAD PENDING COUNT FROM MONGODB
+  // ========================================
   const loadPendingCount = async () => {
     try {
-      const response = await fetch(`${API_URL}/api/audit-reports.xlsx?t=${Date.now()}`);
-      if (!response.ok) return;
-
-      const ExcelJS = (await import('exceljs')).default;
-      const buffer = await response.arrayBuffer();
-      const workbook = new ExcelJS.Workbook();
-      await workbook.xlsx.load(buffer);
-      const worksheet = workbook.worksheets[0];
+      const response = await fetch(`${API_URL}/api/audit-reports/pending/count`);
       
-      let count = 0;
-      worksheet.eachRow({ includeEmpty: false }, (row, rowNumber) => {
-        if (rowNumber > 1) {
-          const getCellValue = (cell) => {
-            if (!cell || cell.value === null || cell.value === undefined) return '';
-            if (typeof cell.value === 'object') {
-              if (cell.value.text) return cell.value.text.toString().trim();
-              if (cell.value.richText) return cell.value.richText.map(rt => rt.text).join('').trim();
-              return '';
-            }
-            return cell.value.toString().trim();
-          };
-          
-          const status = getCellValue(row.getCell(15)); // Current Status
-          if (status === 'Pending with Supervisor') {
-            count++;
-          }
-        }
-      });
-
-      setPendingCount(count);
+      if (response.ok) {
+        const data = await response.json();
+        setPendingCount(data.count || 0);
+        console.log('📋 Pending count:', data.count);
+      }
     } catch (err) {
       console.error('Error loading pending count:', err);
+      setPendingCount(0);
     }
   };
 

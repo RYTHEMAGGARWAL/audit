@@ -10,7 +10,8 @@ const UserDashboard = () => {
   const loggedUser = JSON.parse(localStorage.getItem('loggedUser') || '{}');
 
   useEffect(() => {
-    if (!loggedUser || loggedUser.Role !== 'User') {
+    const role = loggedUser?.Role?.toLowerCase();
+    if (!loggedUser || (role !== 'user' && role !== 'audit user')) {
       alert('Unauthorized! Redirecting to login.');
       navigate('/');
     }

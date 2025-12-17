@@ -4,6 +4,7 @@ import { UsersProvider } from './contexts/UsersContext';
 import Login from './Components/Login';
 import Admin from './Components/Admin';
 import UserDashboard from './Components/UserDashboard';
+import CenterDashboard from './Components/CenterDashboard';
 import './App.css';
 
 function App() {
@@ -14,7 +15,8 @@ function App() {
           <Routes>
             <Route path="/" element={<Login />} />
             <Route path="/admin" element={<Admin />} />
-            <Route path="/user" element={<UserDashboard />} />
+            <Route path="/user-dashboard" element={<UserDashboard />} />
+            <Route path="/center-dashboard" element={<CenterDashboard />} />
             <Route path="*" element={<Navigate to="/" />} />
           </Routes>
         </div>

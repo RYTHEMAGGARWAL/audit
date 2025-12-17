@@ -72,50 +72,37 @@ const PendingApprovals = ({ onApprovalUpdate }) => {
     }
   ];
 
-  // Load pending reports
+  // Load pending reports from MongoDB
   const loadPendingReports = async () => {
     try {
       setLoading(true);
-      const response = await fetch(`${API_URL}/api/audit-reports.xlsx?t=${Date.now()}`);
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
-
-      const buffer = await response.arrayBuffer();
-      const workbook = new ExcelJS.Workbook();
-      await workbook.xlsx.load(buffer);
-      const worksheet = workbook.worksheets[0];
+      console.log('📋 Loading pending reports from MongoDB...');
       
-      const reports = [];
-      worksheet.eachRow({ includeEmpty: false }, (row, rowNumber) => {
-        if (rowNumber > 1) {
-          const report = {
-            centerCode: getCellValue(row.getCell(1)),
-            centerName: getCellValue(row.getCell(2)),
-            chName: getCellValue(row.getCell(3)),
-            geolocation: getCellValue(row.getCell(4)),
-            centerHeadName: getCellValue(row.getCell(5)),
-            zonalHeadName: getCellValue(row.getCell(6)),
-            frontOfficeScore: getCellValue(row.getCell(7)),
-            deliveryProcessScore: getCellValue(row.getCell(8)),
-            placementScore: getCellValue(row.getCell(9)),
-            managementScore: getCellValue(row.getCell(10)),
-            grandTotal: getCellValue(row.getCell(11)),
-            auditDate: getCellValue(row.getCell(12)),
-            auditDataJson: getCellValue(row.getCell(13)),
-            submissionStatus: getCellValue(row.getCell(14)) || 'Not Submitted',
-            currentStatus: getCellValue(row.getCell(15)) || 'Not Submitted',
-            approvedBy: getCellValue(row.getCell(16)) || '',
-            submittedDate: getCellValue(row.getCell(17)) || '',
-            remarksText: getCellValue(row.getCell(18)) || '' // Custom remarks from View Reports
-          };
-          
-          // Only include pending reports
-          if (report.centerCode && report.currentStatus === 'Pending with Supervisor') {
-            reports.push(report);
-          }
-        }
-      });
+      const response = await fetch(`${API_URL}/api/audit-reports/pending`);
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      
+      const reports = await response.json();
+      console.log('✅ Pending reports loaded:', reports.length);
+      
+      // Transform data to match expected format
+      const formattedReports = reports.map(r => ({
+        ...r,
+        _id: r._id,
+        frontOfficeScore: r.frontOfficeScore?.toString() || '0',
+        deliveryProcessScore: r.deliveryProcessScore?.toString() || '0',
+        placementScore: r.placementScore?.toString() || '0',
+        managementScore: r.managementScore?.toString() || '0',
+        grandTotal: r.grandTotal?.toString() || '0',
+        auditDate: r.auditDateString || r.auditDate || '',
+        placementApplicable: r.placementApplicable || 'yes',
+        submissionStatus: r.submissionStatus || 'Not Submitted',
+        currentStatus: r.currentStatus || 'Not Submitted',
+        approvedBy: r.approvedBy || '',
+        submittedDate: r.submittedDate || '',
+        remarksText: r.remarksText || ''
+      }));
 
-      setPendingReports(reports);
+      setPendingReports(formattedReports);
     } catch (err) {
       console.error('❌ Error loading pending reports:', err);
       setPendingReports([]);
@@ -124,15 +111,22 @@ const PendingApprovals = ({ onApprovalUpdate }) => {
     }
   };
 
-  // View remarks
+  // View remarks - MongoDB version
   const handleViewRemarks = (report) => {
     try {
-      const parsedData = JSON.parse(report.auditDataJson);
+      // For MongoDB, checkpoint data is directly in report object
+      const checkpointIds = ['FO1','FO2','FO3','FO4','FO5','DP1','DP2','DP3','DP4','DP5','DP6','DP7','DP8','DP9','DP10','DP11','PP1','PP2','PP3','PP4','MP1','MP2','MP3','MP4','MP5'];
+      const data = {};
+      checkpointIds.forEach(id => {
+        if (report[id]) {
+          data[id] = report[id];
+        }
+      });
       setSelectedRemarks({ 
         centerName: report.centerName, 
         centerCode: report.centerCode,
-        data: parsedData,
-        customRemarks: report.remarksText || '' // Add custom remarks from Column 18
+        data: data,
+        customRemarks: report.remarksText || ''
       });
       setShowRemarksModal(true);
     } catch (e) {
@@ -140,39 +134,33 @@ const PendingApprovals = ({ onApprovalUpdate }) => {
     }
   };
 
-  // Approve Report
+  // Approve Report - MongoDB version
   const handleApproveReport = async (centerCode) => {
     if (window.confirm('✅ Approve this report?')) {
       try {
         setLoading(true);
+        
+        // Find report ID
+        const report = pendingReports.find(r => r.centerCode === centerCode);
+        if (!report || !report._id) {
+          throw new Error('Report not found');
+        }
 
-        const response = await fetch(`${API_URL}/api/audit-reports.xlsx?t=${Date.now()}`);
-        const buffer = await response.arrayBuffer();
-        const workbook = new ExcelJS.Workbook();
-        await workbook.xlsx.load(buffer);
-        const worksheet = workbook.worksheets[0];
-
-        let updated = false;
-        worksheet.eachRow({ includeEmpty: false }, (row, rowNumber) => {
-          if (rowNumber > 1) {
-            const code = getCellValue(row.getCell(1));
-            if (code === centerCode) {
-              row.getCell(15).value = 'Approved'; // Current Status
-              row.getCell(16).value = loggedUser.firstname + ' ' + loggedUser.lastname; // Approved By
-              updated = true;
-            }
-          }
+        const response = await fetch(`${API_URL}/api/audit-reports/${report._id}/approve`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            adminName: loggedUser.firstname + ' ' + (loggedUser.lastname || ''),
+            remarks: ''
+          })
         });
 
-        if (updated) {
-          const updatedBuffer = await workbook.xlsx.writeBuffer();
-          await axios.post(`${API_URL}/api/save-audit-reports`, updatedBuffer, {
-            headers: { 'Content-Type': 'application/octet-stream' }
-          });
-
+        if (response.ok) {
           alert('✅ Report approved successfully!');
           await loadPendingReports();
-          if (onApprovalUpdate) onApprovalUpdate(); // Update parent count
+          if (onApprovalUpdate) onApprovalUpdate();
+        } else {
+          throw new Error('Approve failed');
         }
       } catch (err) {
         console.error('❌ Error:', err);
@@ -183,9 +171,8 @@ const PendingApprovals = ({ onApprovalUpdate }) => {
     }
   };
 
-  // Reject Report with detailed reason
+  // Reject Report with detailed reason - MongoDB version
   const handleRejectReport = async (centerCode, centerName) => {
-    // Create a modal for rejection with detailed feedback
     const rejectionReason = prompt(`❌ Enter detailed rejection reason for ${centerName}:\n\nBe specific about what needs to be improved:`);
     
     if (rejectionReason && rejectionReason.trim()) {
@@ -193,33 +180,27 @@ const PendingApprovals = ({ onApprovalUpdate }) => {
         try {
           setLoading(true);
 
-          const response = await fetch(`${API_URL}/api/audit-reports.xlsx?t=${Date.now()}`);
-          const buffer = await response.arrayBuffer();
-          const workbook = new ExcelJS.Workbook();
-          await workbook.xlsx.load(buffer);
-          const worksheet = workbook.worksheets[0];
+          // Find report ID
+          const report = pendingReports.find(r => r.centerCode === centerCode);
+          if (!report || !report._id) {
+            throw new Error('Report not found');
+          }
 
-          let updated = false;
-          worksheet.eachRow({ includeEmpty: false }, (row, rowNumber) => {
-            if (rowNumber > 1) {
-              const code = getCellValue(row.getCell(1));
-              if (code === centerCode) {
-                row.getCell(15).value = `Rejected: ${rejectionReason}`; // Current Status with reason
-                row.getCell(16).value = loggedUser.firstname + ' ' + loggedUser.lastname; // Rejected By
-                updated = true;
-              }
-            }
+          const response = await fetch(`${API_URL}/api/audit-reports/${report._id}/reject`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              adminName: loggedUser.firstname + ' ' + (loggedUser.lastname || ''),
+              remarks: rejectionReason
+            })
           });
 
-          if (updated) {
-            const updatedBuffer = await workbook.xlsx.writeBuffer();
-            await axios.post(`${API_URL}/api/save-audit-reports`, updatedBuffer, {
-              headers: { 'Content-Type': 'application/octet-stream' }
-            });
-
+          if (response.ok) {
             alert('❌ Report rejected! User will be notified.');
             await loadPendingReports();
-            if (onApprovalUpdate) onApprovalUpdate(); // Update parent count
+            if (onApprovalUpdate) onApprovalUpdate();
+          } else {
+            throw new Error('Reject failed');
           }
         } catch (err) {
           console.error('❌ Error:', err);

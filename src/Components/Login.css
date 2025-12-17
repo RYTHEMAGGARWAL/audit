@@ -49,12 +49,16 @@
   75% { transform: translate(40px, 40px) rotate(270deg); }
 }
 
-.login-form {
+/* ========================================
+   LOGIN BOX - MAIN CONTAINER
+   ======================================== */
+.login-box {
   background: white;
   padding: 50px 40px;
   border-radius: 20px;
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
   width: 450px;
+  max-width: 90%;
   text-align: center;
   position: relative;
   z-index: 10;
@@ -72,28 +76,14 @@
   }
 }
 
-/* University Logo/Icon */
-.login-form::before {
-  content: '🎓';
-  font-size: 60px;
-  display: block;
-  margin-bottom: 20px;
-  animation: bounce 2s infinite;
-}
-
-@keyframes bounce {
-  0%, 100% { transform: translateY(0); }
-  50% { transform: translateY(-10px); }
-}
-
-.login-form h1 {
+.login-box h2 {
   color: #2c3e50;
   margin-bottom: 10px;
   font-size: 28px;
   font-weight: 700;
 }
 
-.login-form h1::after {
+.login-box h2::after {
   content: '';
   display: block;
   width: 60px;
@@ -103,25 +93,15 @@
   border-radius: 2px;
 }
 
-/* Debug Info Box */
-.login-form > div:first-of-type {
-  background: linear-gradient(135deg, #e3f2fd 0%, #bbdefb 100%) !important;
-  padding: 12px !important;
-  margin-bottom: 25px !important;
-  border-radius: 10px !important;
-  font-size: 12px !important;
-  border: 2px solid #2196f3 !important;
-  border-left: 4px solid #1976d2 !important;
-  box-shadow: 0 2px 8px rgba(33, 150, 243, 0.2) !important;
-  color: #1565c0 !important;
-  text-align: left !important;
+.login-box .subtitle {
+  color: #7f8c8d;
+  margin-bottom: 30px;
+  font-size: 14px;
 }
 
-.login-form > div:first-of-type strong {
-  color: #0d47a1;
-  font-weight: 700;
-}
-
+/* ========================================
+   INPUT GROUPS
+   ======================================== */
 .input-group {
   margin-bottom: 25px;
   text-align: left;
@@ -135,15 +115,6 @@
   color: #2c3e50;
   font-weight: 600;
   font-size: 14px;
-}
-
-.input-group label::before {
-  content: '👤';
-  font-size: 18px;
-}
-
-.input-group:nth-of-type(2) label::before {
-  content: '🔒';
 }
 
 .input-group input {
@@ -165,40 +136,15 @@
   transform: translateY(-2px);
 }
 
-.error {
-  background: linear-gradient(135deg, #ff6b6b 0%, #ee5a6f 100%);
-  color: white;
-  padding: 14px 18px;
-  border-radius: 10px;
-  margin-bottom: 20px;
-  font-size: 14px;
-  font-weight: 500;
-  animation: shake 0.5s ease;
-  box-shadow: 0 4px 15px rgba(255, 107, 107, 0.3);
-  display: flex;
-  align-items: center;
-  gap: 10px;
+.input-group input::placeholder {
+  color: #adb5bd;
 }
 
-.error::before {
-  content: '⚠️';
-  font-size: 20px;
-}
-
-@keyframes shake {
-  0%, 100% { transform: translateX(0); }
-  25% { transform: translateX(-10px); }
-  75% { transform: translateX(10px); }
-}
-
-.button-group {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  margin-top: 25px;
-}
-
-.btn {
+/* ========================================
+   LOGIN BUTTON
+   ======================================== */
+.login-btn {
+  width: 100%;
   padding: 14px;
   border: none;
   border-radius: 10px;
@@ -208,10 +154,13 @@
   transition: all 0.3s ease;
   position: relative;
   overflow: hidden;
-  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
+  margin-top: 10px;
 }
 
-.btn::before {
+.login-btn::before {
   content: '';
   position: absolute;
   top: 0;
@@ -222,99 +171,92 @@
   transition: left 0.5s ease;
 }
 
-.btn:hover::before {
+.login-btn:hover::before {
   left: 100%;
 }
 
-.btn:hover {
+.login-btn:hover {
   transform: translateY(-3px);
-  box-shadow: 0 8px 25px rgba(0, 0, 0, 0.3);
-}
-
-.btn:active {
-  transform: translateY(-1px);
-}
-
-.submit {
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  color: white;
-}
-
-.submit:hover {
   box-shadow: 0 8px 25px rgba(102, 126, 234, 0.5);
 }
 
-.reset {
-  background: linear-gradient(135deg, #f39c12 0%, #e67e22 100%);
-  color: white;
+.login-btn:active {
+  transform: translateY(-1px);
 }
 
-.reset:hover {
-  box-shadow: 0 8px 25px rgba(243, 156, 18, 0.5);
+.login-btn:disabled {
+  background: #ccc;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
 }
 
-.forgot {
-  background: linear-gradient(135deg, #2196F3 0%, #1976D2 100%);
-  color: white;
-}
-
-.forgot:hover {
-  box-shadow: 0 8px 25px rgba(33, 150, 243, 0.5);
-}
-
-/* Loading State */
-.login-container > p {
-  color: white;
-  font-size: 18px;
-  font-weight: 600;
-  text-align: center;
-  animation: pulse 1.5s infinite;
-}
-
-@keyframes pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.5; }
-}
-
-/* Responsive Design */
-@media (max-width: 576px) {
-  .login-form {
-    width: 90%;
-    padding: 40px 30px;
-  }
-
-  .login-form h1 {
-    font-size: 24px;
-  }
-
-  .input-group input {
-    padding: 12px 15px;
-    font-size: 14px;
-  }
-
-  .btn {
-    padding: 12px;
-    font-size: 15px;
-  }
-}
-
-/* Footer Text */
-.login-form::after {
-  content: '© 2025 National Institute of Technology';
-  display: block;
-  margin-top: 30px;
-  color: #95a5a6;
-  font-size: 12px;
-  font-weight: 400;
-}
 /* ========================================
-   FORGOT PASSWORD STYLES
+   ERROR & SUCCESS MESSAGES
    ======================================== */
-
-.forgot-password-form {
-  max-width: 500px;
+.error-message {
+  background: linear-gradient(135deg, #ff6b6b 0%, #ee5a6f 100%);
+  color: white;
+  padding: 14px 18px;
+  border-radius: 10px;
+  margin: 15px 0;
+  font-size: 14px;
+  font-weight: 500;
+  animation: shake 0.5s ease;
+  box-shadow: 0 4px 15px rgba(255, 107, 107, 0.3);
+  text-align: center;
 }
 
+@keyframes shake {
+  0%, 100% { transform: translateX(0); }
+  25% { transform: translateX(-10px); }
+  75% { transform: translateX(10px); }
+}
+
+.success-message {
+  background: linear-gradient(135deg, #4caf50 0%, #45a049 100%);
+  color: white;
+  padding: 14px 18px;
+  border-radius: 10px;
+  margin: 15px 0;
+  font-size: 14px;
+  font-weight: 500;
+  box-shadow: 0 4px 15px rgba(76, 175, 80, 0.3);
+  text-align: center;
+}
+
+/* ========================================
+   FORGOT PASSWORD LINK
+   ======================================== */
+.forgot-link {
+  color: #667eea;
+  cursor: pointer;
+  margin-top: 20px;
+  font-size: 14px;
+  font-weight: 500;
+  transition: all 0.3s ease;
+}
+
+.forgot-link:hover {
+  color: #764ba2;
+  text-decoration: underline;
+}
+
+/* ========================================
+   LOADING STATE
+   ======================================== */
+.login-box h2:only-child {
+  margin-bottom: 10px;
+}
+
+.login-box p:last-child:not(.forgot-link):not(.subtitle):not(.error-message):not(.success-message) {
+  color: #7f8c8d;
+  font-size: 14px;
+}
+
+/* ========================================
+   FORGOT PASSWORD FORM STYLES
+   ======================================== */
 .step-indicator {
   display: flex;
   justify-content: space-between;
@@ -374,68 +316,36 @@
   font-weight: 700;
 }
 
-.forgot-instruction {
-  background: linear-gradient(135deg, #e3f2fd 0%, #bbdefb 100%);
-  padding: 15px;
-  border-radius: 10px;
-  margin: 20px 0;
-  color: #1565c0;
-  font-size: 14px;
-  line-height: 1.6;
-  border-left: 4px solid #2196f3;
-}
-
-.forgot-instruction strong {
-  color: #0d47a1;
-  font-weight: 700;
-}
-
-.otp-input {
+/* OTP Input Style */
+.input-group input.otp-input {
   text-align: center;
   font-size: 24px;
   letter-spacing: 10px;
   font-weight: bold;
 }
 
-.success {
-  background: linear-gradient(135deg, #4caf50 0%, #45a049 100%);
-  color: white;
-  padding: 14px 18px;
-  border-radius: 10px;
-  margin: 15px 0;
-  font-size: 14px;
-  font-weight: 500;
-  animation: slideIn 0.5s ease;
-  box-shadow: 0 4px 15px rgba(76, 175, 80, 0.3);
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.success::before {
-  content: '✅';
-  font-size: 20px;
-}
-
-@keyframes slideIn {
-  from {
-    opacity: 0;
-    transform: translateY(-20px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-/* Responsive for forgot password */
+/* ========================================
+   RESPONSIVE DESIGN
+   ======================================== */
 @media (max-width: 576px) {
-  .forgot-password-form {
+  .login-box {
     width: 90%;
+    padding: 40px 25px;
+    margin: 20px;
   }
 
-  .step-indicator {
-    margin: 20px 0;
+  .login-box h2 {
+    font-size: 24px;
+  }
+
+  .input-group input {
+    padding: 12px 15px;
+    font-size: 14px;
+  }
+
+  .login-btn {
+    padding: 12px;
+    font-size: 15px;
   }
 
   .step span {
@@ -447,9 +357,16 @@
   .step small {
     font-size: 10px;
   }
+}
 
-  .otp-input {
-    font-size: 20px;
-    letter-spacing: 5px;
-  }
+/* ========================================
+   FOOTER TEXT (Optional)
+   ======================================== */
+.login-box::after {
+  content: '© 2025 National Institute of Technology';
+  display: block;
+  margin-top: 30px;
+  color: #95a5a6;
+  font-size: 12px;
+  font-weight: 400;
 }
