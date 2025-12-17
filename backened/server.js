@@ -1,20 +1,19 @@
 // ========================================
 // NIIT Audit System - MongoDB Server
+// Gmail SMTP + PDF Version (LOCAL)
 // ========================================
 const express = require('express');
 const cors = require('cors');
 const bodyParser = require('body-parser');
 const mongoose = require('mongoose');
+const nodemailer = require('nodemailer');
 const crypto = require('crypto');
-const { Resend } = require('resend');
-const { generateEmailHTML, generateEmailSubject } = require('./emailTemplate');
+const puppeteer = require('puppeteer');
+const { generateEmailHTML, generatePDFHTML, generateEmailSubject } = require('./emailTemplate');
 require('dotenv').config();
 
 const app = express();
 const PORT = process.env.PORT || 3001;
-
-// Resend Email Configuration
-const resend = new Resend(process.env.RESEND_API_KEY || 're_gbFL6NWy_NDjPdug3rFbVTwUcnWzA2SAt');
 
 // ========================================
 // MONGODB CONNECTION
@@ -37,15 +36,15 @@ mongoose.connect(MONGODB_URI)
 // SCHEMAS
 // ========================================
 
-// User Schema
+// User Schema - Using 'Role' (uppercase) to match frontend
 const userSchema = new mongoose.Schema({
-  username: { type: String, required: true, unique: true, lowercase: true, trim: true },
+  username: { type: String, required: true, unique: true },
   password: { type: String, required: true },
-  firstname: { type: String, required: true, trim: true },
-  lastname: { type: String, trim: true, default: '' },
-  email: { type: String, required: true, unique: true, lowercase: true, trim: true },
-  mobile: { type: String, trim: true, default: '' },
-  role: { type: String, enum: ['Admin', 'Audit User', 'Center User'], default: 'Audit User' },
+  firstname: { type: String, required: true },
+  lastname: { type: String, default: '' },
+  email: { type: String, default: '' },
+  mobile: { type: String, default: '' },
+  Role: { type: String, default: 'Audit User' },
   isActive: { type: Boolean, default: true },
   resetOTP: { type: String, default: null },
   resetOTPExpires: { type: Date, default: null }
@@ -55,18 +54,18 @@ const User = mongoose.model('User', userSchema);
 
 // Center Schema
 const centerSchema = new mongoose.Schema({
-  centerCode: { type: String, required: true, unique: true, uppercase: true, trim: true },
-  centerName: { type: String, required: true, trim: true },
-  chName: { type: String, trim: true, default: '' },
-  geolocation: { type: String, trim: true, default: '' },
-  centerHeadName: { type: String, trim: true, default: '' },
-  zonalHeadName: { type: String, trim: true, default: '' },
+  centerCode: { type: String, required: true, unique: true },
+  centerName: { type: String, required: true },
+  chName: { type: String, default: '' },
+  geolocation: { type: String, default: '' },
+  centerHeadName: { type: String, default: '' },
+  zonalHeadName: { type: String, default: '' },
   isActive: { type: Boolean, default: true }
 }, { timestamps: true });
 
 const Center = mongoose.model('Center', centerSchema);
 
-// Audit Report Schema
+// Checkpoint Data Schema
 const checkpointDataSchema = new mongoose.Schema({
   totalSamples: { type: String, default: '' },
   samplesCompliant: { type: String, default: '' },
@@ -76,63 +75,54 @@ const checkpointDataSchema = new mongoose.Schema({
   centerHeadRemarks: { type: String, default: '' }
 }, { _id: false });
 
+// Audit Report Schema
 const auditReportSchema = new mongoose.Schema({
-  centerCode: { type: String, required: true, trim: true },
-  centerName: { type: String, required: true, trim: true },
-  chName: { type: String, trim: true, default: '' },
-  geolocation: { type: String, trim: true, default: '' },
-  centerHeadName: { type: String, trim: true, default: '' },
-  zonalHeadName: { type: String, trim: true, default: '' },
+  centerCode: { type: String, required: true },
+  centerName: { type: String, required: true },
+  chName: { type: String, default: '' },
+  geolocation: { type: String, default: '' },
+  centerHeadName: { type: String, default: '' },
+  zonalHeadName: { type: String, default: '' },
   frontOfficeScore: { type: Number, default: 0 },
   deliveryProcessScore: { type: Number, default: 0 },
   placementScore: { type: Number, default: 0 },
+  placementApplicable: { type: String, default: 'yes' },
   managementScore: { type: Number, default: 0 },
   grandTotal: { type: Number, default: 0 },
+  auditStatus: { type: String, default: '' },
   auditDate: { type: Date, default: Date.now },
   auditDateString: { type: String, default: '' },
-  // Checkpoints
-  FO1: { type: checkpointDataSchema, default: () => ({}) },
-  FO2: { type: checkpointDataSchema, default: () => ({}) },
-  FO3: { type: checkpointDataSchema, default: () => ({}) },
-  FO4: { type: checkpointDataSchema, default: () => ({}) },
-  FO5: { type: checkpointDataSchema, default: () => ({}) },
-  DP1: { type: checkpointDataSchema, default: () => ({}) },
-  DP2: { type: checkpointDataSchema, default: () => ({}) },
-  DP3: { type: checkpointDataSchema, default: () => ({}) },
-  DP4: { type: checkpointDataSchema, default: () => ({}) },
-  DP5: { type: checkpointDataSchema, default: () => ({}) },
-  DP6: { type: checkpointDataSchema, default: () => ({}) },
-  DP7: { type: checkpointDataSchema, default: () => ({}) },
-  DP8: { type: checkpointDataSchema, default: () => ({}) },
-  DP9: { type: checkpointDataSchema, default: () => ({}) },
-  DP10: { type: checkpointDataSchema, default: () => ({}) },
-  DP11: { type: checkpointDataSchema, default: () => ({}) },
-  PP1: { type: checkpointDataSchema, default: () => ({}) },
-  PP2: { type: checkpointDataSchema, default: () => ({}) },
-  PP3: { type: checkpointDataSchema, default: () => ({}) },
-  PP4: { type: checkpointDataSchema, default: () => ({}) },
-  MP1: { type: checkpointDataSchema, default: () => ({}) },
-  MP2: { type: checkpointDataSchema, default: () => ({}) },
-  MP3: { type: checkpointDataSchema, default: () => ({}) },
-  MP4: { type: checkpointDataSchema, default: () => ({}) },
-  MP5: { type: checkpointDataSchema, default: () => ({}) },
-  placementApplicable: { type: String, enum: ['yes', 'no'], default: 'yes' },
+  remarksText: { type: String, default: '' },
+  FO1: checkpointDataSchema, FO2: checkpointDataSchema, FO3: checkpointDataSchema,
+  FO4: checkpointDataSchema, FO5: checkpointDataSchema,
+  DP1: checkpointDataSchema, DP2: checkpointDataSchema, DP3: checkpointDataSchema,
+  DP4: checkpointDataSchema, DP5: checkpointDataSchema, DP6: checkpointDataSchema,
+  DP7: checkpointDataSchema, DP8: checkpointDataSchema, DP9: checkpointDataSchema,
+  DP10: checkpointDataSchema, DP11: checkpointDataSchema,
+  PP1: checkpointDataSchema, PP2: checkpointDataSchema, PP3: checkpointDataSchema, PP4: checkpointDataSchema,
+  MP1: checkpointDataSchema, MP2: checkpointDataSchema, MP3: checkpointDataSchema,
+  MP4: checkpointDataSchema, MP5: checkpointDataSchema,
   submissionStatus: { type: String, default: 'Not Submitted' },
   currentStatus: { type: String, default: 'Not Submitted' },
   approvedBy: { type: String, default: '' },
   submittedDate: { type: String, default: '' },
-  remarksText: { type: String, default: '' },
-  // Center User Remarks
   centerRemarks: { type: String, default: '' },
   centerRemarksBy: { type: String, default: '' },
   centerRemarksDate: { type: String, default: '' },
-  // Email Sent Status
   emailSent: { type: Boolean, default: false },
   emailSentDate: { type: String, default: '' },
   emailSentTo: { type: String, default: '' }
 }, { timestamps: true });
 
 const AuditReport = mongoose.model('AuditReport', auditReportSchema);
+
+// OTP Schema
+const otpSchema = new mongoose.Schema({
+  email: { type: String, required: true },
+  otp: { type: String, required: true },
+  createdAt: { type: Date, default: Date.now, expires: 600 }
+});
+const OTP = mongoose.model('OTP', otpSchema);
 
 // ========================================
 // MIDDLEWARE
@@ -142,20 +132,25 @@ app.use(cors({
     'http://localhost:5173',
     'http://localhost:3000',
     'https://audit-seven-psi.vercel.app',
-    'https://audit-git-main-rythem-aggarwals-projects.vercel.app',
-    'https://audit-fh6x61p71-rythem-aggarwals-projects.vercel.app'
+    'https://audit-git-main-rythem-aggarwals-projects.vercel.app'
   ],
   credentials: true
 }));
 app.use(bodyParser.json({ limit: '10mb' }));
 app.use(bodyParser.urlencoded({ extended: true, limit: '10mb' }));
-app.use('/public', express.static('public'));
+
+// Gmail SMTP Configuration
+const transporter = nodemailer.createTransport({
+  service: 'gmail',
+  auth: {
+    user: process.env.EMAIL_USER || 'rythemaggarwal7840@gmail.com',
+    pass: process.env.EMAIL_PASS || 'mcou dlaz bodo odwe'
+  }
+});
 
 // ========================================
 // AUTH ROUTES
 // ========================================
-
-// Login
 app.post('/api/login', async (req, res) => {
   try {
     const { username, password } = req.body;
@@ -166,19 +161,25 @@ app.post('/api/login', async (req, res) => {
       return res.status(400).json({ error: 'Username and password required' });
     }
 
+    // Find user (case insensitive)
     const user = await User.findOne({ 
-      username: username.toLowerCase(),
-      isActive: true 
+      username: { $regex: new RegExp(`^${username}$`, 'i') }
     });
 
-    if (!user || user.password !== password) {
-      console.log(`❌ Invalid credentials for ${username}`);
-      return res.status(401).json({ error: 'Invalid username or password' });
+    if (!user) {
+      console.log('❌ User not found');
+      return res.status(401).json({ error: 'Invalid credentials' });
+    }
+
+    if (user.password !== password) {
+      console.log('❌ Wrong password');
+      return res.status(401).json({ error: 'Invalid credentials' });
     }
 
     console.log(`✅ Login successful for ${username}`);
-    console.log(`✅ Role: ${user.role}`);
+    console.log(`✅ Role: ${user.Role}`);
 
+    // Return user with Role field
     res.json({
       success: true,
       user: {
@@ -188,270 +189,127 @@ app.post('/api/login', async (req, res) => {
         lastname: user.lastname,
         email: user.email,
         mobile: user.mobile,
-        Role: user.role  // Frontend expects 'Role'
+        Role: user.Role  // Frontend expects 'Role'
       }
     });
   } catch (err) {
     console.error('❌ Login error:', err.message);
-    res.status(500).json({ error: 'Login failed: ' + err.message });
-  }
-});
-
-// Send OTP
-app.post('/api/forgot-password/send-otp', async (req, res) => {
-  try {
-    const { email } = req.body;
-    console.log(`\n📧 ========== FORGOT PASSWORD ==========`);
-    console.log(`📧 Email: ${email}`);
-
-    const user = await User.findOne({ email: email.toLowerCase(), isActive: true });
-    if (!user) {
-      return res.status(404).json({ error: 'Email not found in our system' });
-    }
-
-    const otp = crypto.randomInt(100000, 999999).toString();
-    user.resetOTP = otp;
-    user.resetOTPExpires = new Date(Date.now() + 10 * 60 * 1000);
-    await user.save();
-
-    console.log(`✅ Generated OTP: ${otp}`);
-
-    const mailOptions = {
-      from: process.env.EMAIL_USER,
-      to: email,
-      subject: 'Password Reset OTP - NIIT System',
-      html: `<div style="font-family:Arial;padding:20px;"><h2>🔐 Password Reset</h2><p>Hello ${user.firstname},</p><p>Your OTP is: <strong style="font-size:24px;color:#667eea;">${otp}</strong></p><p>Valid for 10 minutes.</p></div>`
-    };
-
-    try {
-      await transporter.sendMail(mailOptions);
-      res.json({ success: true, message: 'OTP sent to your email', email });
-    } catch (emailErr) {
-      console.log('⚠️ Email failed, OTP:', otp);
-      res.json({ success: true, message: 'OTP generated (check console)', email, devOtp: otp });
-    }
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// Verify OTP
-app.post('/api/forgot-password/verify-otp', async (req, res) => {
-  try {
-    const { email, otp } = req.body;
-    const user = await User.findOne({
-      email: email.toLowerCase(),
-      resetOTP: otp,
-      resetOTPExpires: { $gt: new Date() }
-    });
-
-    if (!user) {
-      return res.status(400).json({ error: 'Invalid or expired OTP' });
-    }
-
-    res.json({ success: true, message: 'OTP verified', username: user.username });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// Reset Password
-app.post('/api/forgot-password/reset-password', async (req, res) => {
-  try {
-    const { email, newPassword } = req.body;
-    const user = await User.findOne({ email: email.toLowerCase() });
-
-    if (!user) {
-      return res.status(404).json({ error: 'User not found' });
-    }
-
-    user.password = newPassword;
-    user.resetOTP = null;
-    user.resetOTPExpires = null;
-    await user.save();
-
-    res.json({ success: true, message: 'Password reset successfully' });
-  } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
 // ========================================
-// USERS ROUTES
+// USER ROUTES
 // ========================================
-
-// Get all users
 app.get('/api/users', async (req, res) => {
   try {
-    const users = await User.find({ isActive: true }).sort({ createdAt: -1 });
-    const formatted = users.map(u => ({
-      _id: u._id,
-      username: u.username,
-      password: u.password,
-      firstname: u.firstname,
-      lastname: u.lastname,
-      email: u.email,
-      mobile: u.mobile || '',
-      Role: u.role
-    }));
-    res.json(formatted);
+    const users = await User.find({});
+    res.json(users);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-// Create user
 app.post('/api/users', async (req, res) => {
   try {
-    const { username, password, firstname, lastname, email, mobile, Role } = req.body;
-    const user = new User({
-      username: username.toLowerCase(),
-      password,
-      firstname,
-      lastname,
-      email: email.toLowerCase(),
-      mobile,
-      role: Role || 'User'
-    });
+    const user = new User(req.body);
     await user.save();
-    res.status(201).json({ success: true, user });
+    res.json(user);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-// Update user
 app.put('/api/users/:id', async (req, res) => {
   try {
-    const user = await User.findByIdAndUpdate(req.params.id, {
-      ...req.body,
-      role: req.body.Role
-    }, { new: true });
-    res.json({ success: true, user });
+    const user = await User.findByIdAndUpdate(req.params.id, req.body, { new: true });
+    res.json(user);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-// Delete user
 app.delete('/api/users/:id', async (req, res) => {
   try {
-    await User.findByIdAndUpdate(req.params.id, { isActive: false });
+    await User.findByIdAndDelete(req.params.id);
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-// Bulk update users (for backward compatibility)
-app.post('/api/update-users', async (req, res) => {
+// ========================================
+// FORGOT PASSWORD ROUTES
+// ========================================
+app.post('/api/forgot-password/send-otp', async (req, res) => {
   try {
-    const users = req.body.users || req.body;
-    console.log(`\n💾 ========== BULK UPDATE USERS ==========`);
-    console.log(`💾 Total: ${users.length}`);
-
-    for (const userData of users) {
-      await User.findOneAndUpdate(
-        { username: userData.username.toLowerCase() },
-        {
-          password: userData.password,
-          firstname: userData.firstname,
-          lastname: userData.lastname || '',
-          email: userData.email?.toLowerCase(),
-          mobile: userData.mobile || '',
-          role: userData.Role || 'User',
-          isActive: true
-        },
-        { upsert: true, new: true }
-      );
+    const { email } = req.body;
+    const user = await User.findOne({ email: { $regex: new RegExp(`^${email}$`, 'i') } });
+    
+    if (!user) {
+      return res.status(404).json({ error: 'Email not found' });
     }
 
-    res.json({ success: true, message: 'Users updated successfully' });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    await OTP.findOneAndDelete({ email: email.toLowerCase() });
+    await new OTP({ email: email.toLowerCase(), otp }).save();
 
-// ========================================
-// CENTERS ROUTES
-// ========================================
-
-// Get all centers
-app.get('/api/centers', async (req, res) => {
-  try {
-    const centers = await Center.find({ isActive: true }).sort({ centerCode: 1 });
-    const formatted = centers.map(c => ({
-      _id: c._id,
-      centerCode: c.centerCode,
-      centerName: c.centerName,
-      chName: c.chName || '',
-      geolocation: c.geolocation || '',
-      centerHeadName: c.centerHeadName || '',
-      zonalHeadName: c.zonalHeadName || ''
-    }));
-    res.json(formatted);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// Create center
-app.post('/api/centers', async (req, res) => {
-  try {
-    const center = new Center({
-      ...req.body,
-      centerCode: req.body.centerCode.toUpperCase()
+    await transporter.sendMail({
+      from: process.env.EMAIL_USER,
+      to: email,
+      subject: 'Password Reset OTP - NIIT Audit System',
+      html: `<h2>Your OTP is: <strong>${otp}</strong></h2><p>Valid for 10 minutes.</p>`
     });
-    await center.save();
-    res.status(201).json({ success: true, center });
+
+    console.log(`📧 OTP sent to ${email}: ${otp}`);
+    res.json({ success: true, message: 'OTP sent to your email' });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-// Bulk update centers
-app.post('/api/update-centers', async (req, res) => {
+app.post('/api/forgot-password/verify-otp', async (req, res) => {
   try {
-    const centers = Array.isArray(req.body) ? req.body : req.body.centers;
-    console.log(`\n💾 ========== BULK UPDATE CENTERS ==========`);
-    console.log(`💾 Total: ${centers.length}`);
-
-    for (const centerData of centers) {
-      await Center.findOneAndUpdate(
-        { centerCode: centerData.centerCode.toUpperCase() },
-        {
-          centerName: centerData.centerName,
-          chName: centerData.chName || '',
-          geolocation: centerData.geolocation || '',
-          centerHeadName: centerData.centerHeadName || '',
-          zonalHeadName: centerData.zonalHeadName || '',
-          isActive: true
-        },
-        { upsert: true, new: true }
-      );
+    const { email, otp } = req.body;
+    const otpDoc = await OTP.findOne({ email: email.toLowerCase(), otp });
+    
+    if (!otpDoc) {
+      return res.status(400).json({ error: 'Invalid or expired OTP' });
     }
 
-    res.json({ success: true, message: 'Centers updated successfully' });
+    res.json({ success: true, message: 'OTP verified' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/forgot-password/reset-password', async (req, res) => {
+  try {
+    const { email, newPassword } = req.body;
+    await User.findOneAndUpdate(
+      { email: { $regex: new RegExp(`^${email}$`, 'i') } },
+      { password: newPassword }
+    );
+    await OTP.findOneAndDelete({ email: email.toLowerCase() });
+    res.json({ success: true, message: 'Password reset successful' });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
 // ========================================
-// AUDIT REPORTS ROUTES
+// AUDIT REPORT ROUTES
 // ========================================
-
-// Get all audit reports
 app.get('/api/audit-reports', async (req, res) => {
   try {
-    const reports = await AuditReport.find().sort({ createdAt: -1 });
+    const reports = await AuditReport.find({}).sort({ updatedAt: -1 });
+    console.log(`📋 Audit reports fetched: ${reports.length}`);
     res.json(reports);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-// Get pending count
 app.get('/api/audit-reports/pending/count', async (req, res) => {
   try {
     const count = await AuditReport.countDocuments({ currentStatus: 'Pending with Supervisor' });
@@ -461,7 +319,6 @@ app.get('/api/audit-reports/pending/count', async (req, res) => {
   }
 });
 
-// Get pending approvals
 app.get('/api/audit-reports/pending', async (req, res) => {
   try {
     const reports = await AuditReport.find({ currentStatus: 'Pending with Supervisor' }).sort({ submittedDate: 1 });
@@ -471,118 +328,23 @@ app.get('/api/audit-reports/pending', async (req, res) => {
   }
 });
 
-// Save/Update audit report
 app.post('/api/save-audit-report', async (req, res) => {
   try {
     const data = req.body;
-    console.log(`\n💾 ========== SAVING AUDIT REPORT ==========`);
-    console.log(`💾 Center: ${data.centerCode} - ${data.centerName}`);
-    console.log(`💾 Grand Total: ${data.grandTotal}/100`);
+    console.log(`\n💾 Saving report for: ${data.centerCode} - ${data.centerName}`);
 
-    // Parse audit data JSON if provided
-    let auditData = {};
-    if (data.auditDataJson) {
-      try {
-        auditData = typeof data.auditDataJson === 'string' ? JSON.parse(data.auditDataJson) : data.auditDataJson;
-      } catch (e) {}
-    }
-
-    // Calculate audit status
     const grandTotalNum = parseFloat(data.grandTotal) || 0;
     let auditStatus = 'Non-Compliant';
     if (grandTotalNum >= 80) auditStatus = 'Compliant';
     else if (grandTotalNum >= 65) auditStatus = 'Amber';
 
-    // Checkpoint names for readable display
-    const checkpointNames = {
-      FO1: "Enquires Entered in Pulse",
-      FO2: "Enrolment form available in Pulse",
-      FO3: "Pre assessment Available",
-      FO4: "Documents uploaded in Pulse",
-      FO5: "Availability of Marketing Material",
-      DP1: "Batch file maintained",
-      DP2: "Batch Heath Card available",
-      DP3: "Attendance marked in EDL sheets",
-      DP4: "BMS maintained",
-      DP5: "FACT Certificate available",
-      DP6: "Post Assessment if applicable",
-      DP7: "Appraisal sheet maintained",
-      DP8: "Appraisal status in Pulse",
-      DP9: "Certification Status",
-      DP10: "Student signature for certificates",
-      DP11: "System vs actual certificate date",
-      PP1: "Student Placement Response",
-      PP2: "CGT/Guest Lecture/Industry Visit",
-      PP3: "Placement Bank & Aging",
-      PP4: "Placement Proof Upload",
-      MP1: "Courseware issue/LMS Usage",
-      MP2: "TIRM details register",
-      MP3: "Monthly Centre Review Meeting",
-      MP4: "Physical asset verification",
-      MP5: "Verification of bill authenticity"
-    };
-
-    // Build readable checkpoint data
-    const buildCheckpointTable = (prefix, areaName, checkpoints) => {
-      let table = `\n📋 ${areaName}\n`;
-      table += `┌────────┬────────────────────────────────────────┬─────────┬───────────┬─────────┬─────────┐\n`;
-      table += `│ ID     │ Checkpoint                             │ Samples │ Compliant │ %       │ Score   │\n`;
-      table += `├────────┼────────────────────────────────────────┼─────────┼───────────┼─────────┼─────────┤\n`;
-      
-      checkpoints.forEach(cpId => {
-        const cp = data[cpId] || auditData[cpId] || {};
-        const name = (checkpointNames[cpId] || cpId).substring(0, 38).padEnd(38);
-        const samples = (cp.totalSamples || '-').toString().padStart(7);
-        const compliant = (cp.samplesCompliant || '-').toString().padStart(9);
-        const percent = cp.compliantPercent ? `${cp.compliantPercent.toFixed(1)}%`.padStart(7) : '    -  ';
-        const score = cp.score ? cp.score.toFixed(2).padStart(7) : '   0.00';
-        table += `│ ${cpId.padEnd(6)} │ ${name} │${samples} │${compliant} │${percent} │${score} │\n`;
-      });
-      
-      table += `└────────┴────────────────────────────────────────┴─────────┴───────────┴─────────┴─────────┘`;
-      return table;
-    };
-
-    const frontOfficeTable = buildCheckpointTable('FO', 'FRONT OFFICE (Max: 30)', ['FO1','FO2','FO3','FO4','FO5']);
-    const deliveryTable = buildCheckpointTable('DP', 'DELIVERY PROCESS (Max: 40)', ['DP1','DP2','DP3','DP4','DP5','DP6','DP7','DP8','DP9','DP10','DP11']);
-    const placementTable = data.placementApplicable === 'no' ? '\n📋 PLACEMENT PROCESS: NA (Not Applicable)' : buildCheckpointTable('PP', 'PLACEMENT PROCESS (Max: 15)', ['PP1','PP2','PP3','PP4']);
-    const managementTable = buildCheckpointTable('MP', 'MANAGEMENT PROCESS (Max: 15)', ['MP1','MP2','MP3','MP4','MP5']);
-
     const updateData = {
-      // ========== READABLE REPORT (VIEW THIS!) ==========
-      _REPORT_VIEW: `
-╔══════════════════════════════════════════════════════════════════════════════╗
-║                           📊 AUDIT REPORT                                     ║
-╠══════════════════════════════════════════════════════════════════════════════╣
-║  Center Code    : ${data.centerCode.padEnd(20)}                              ║
-║  Center Name    : ${(data.centerName || '').substring(0,20).padEnd(20)}                              ║
-║  CH Name        : ${(data.chName || '-').substring(0,20).padEnd(20)}                              ║
-║  Audit Date     : ${(data.auditDate || new Date().toLocaleDateString('en-GB')).padEnd(20)}                              ║
-╠══════════════════════════════════════════════════════════════════════════════╣
-║  📈 SCORES SUMMARY                                                            ║
-║  ─────────────────────────────────────────────────────────────────────────── ║
-║  Front Office     : ${parseFloat(data.frontOfficeScore || 0).toFixed(2).padStart(6)} / 30                                     ║
-║  Delivery Process : ${parseFloat(data.deliveryProcessScore || 0).toFixed(2).padStart(6)} / 40                                     ║
-║  Placement        : ${data.placementApplicable === 'no' ? '    NA     ' : parseFloat(data.placementScore || 0).toFixed(2).padStart(6) + ' / 15'}                                     ║
-║  Management       : ${parseFloat(data.managementScore || 0).toFixed(2).padStart(6)} / 15                                     ║
-║  ─────────────────────────────────────────────────────────────────────────── ║
-║  🎯 GRAND TOTAL   : ${grandTotalNum.toFixed(2).padStart(6)} / 100    Status: ${auditStatus.padEnd(15)}            ║
-╚══════════════════════════════════════════════════════════════════════════════╝
-${frontOfficeTable}
-${deliveryTable}
-${placementTable}
-${managementTable}
-`,
-      
-      // ========== CENTER INFO ==========
       centerCode: data.centerCode,
       centerName: data.centerName,
       chName: data.chName || '',
       geolocation: data.geolocation || '',
       centerHeadName: data.centerHeadName || '',
       zonalHeadName: data.zonalHeadName || '',
-      
-      // ========== SCORES ==========
       frontOfficeScore: parseFloat(data.frontOfficeScore) || 0,
       deliveryProcessScore: parseFloat(data.deliveryProcessScore) || 0,
       placementScore: parseFloat(data.placementScore) || 0,
@@ -590,30 +352,19 @@ ${managementTable}
       managementScore: parseFloat(data.managementScore) || 0,
       grandTotal: grandTotalNum,
       auditStatus: auditStatus,
-      
-      // ========== STATUS ==========
       auditDateString: data.auditDate || new Date().toLocaleDateString('en-GB'),
-      submissionStatus: data.submissionStatus || 'Not Submitted',
-      currentStatus: data.currentStatus || 'Not Submitted',
-      approvedBy: data.approvedBy || '',
-      submittedDate: data.submittedDate || '',
       remarksText: data.remarksText || '',
-      
-      // Reset email sent status when report is edited
+      submissionStatus: 'Not Submitted',
+      currentStatus: 'Not Submitted',
       emailSent: false,
       emailSentDate: '',
-      emailSentTo: '',
-      
-      // ========== CHECKPOINT DATA ==========
-      ...(['FO1','FO2','FO3','FO4','FO5','DP1','DP2','DP3','DP4','DP5','DP6','DP7','DP8','DP9','DP10','DP11','PP1','PP2','PP3','PP4','MP1','MP2','MP3','MP4','MP5']
-        .reduce((acc, key) => { 
-          if(data[key]) acc[key] = data[key]; 
-          else if(auditData[key]) acc[key] = auditData[key]; 
-          return acc; 
-        }, {}))
+      emailSentTo: ''
     };
-    
-    console.log('💾 Saving placementApplicable:', data.placementApplicable);
+
+    const checkpointIds = ['FO1','FO2','FO3','FO4','FO5','DP1','DP2','DP3','DP4','DP5','DP6','DP7','DP8','DP9','DP10','DP11','PP1','PP2','PP3','PP4','MP1','MP2','MP3','MP4','MP5'];
+    checkpointIds.forEach(id => {
+      if (data[id]) updateData[id] = data[id];
+    });
 
     const report = await AuditReport.findOneAndUpdate(
       { centerCode: data.centerCode },
@@ -622,19 +373,7 @@ ${managementTable}
     );
 
     console.log(`✅ Report saved for ${data.centerCode}`);
-    res.json({ success: true, message: 'Audit report saved successfully', report });
-  } catch (err) {
-    console.error('❌ Save error:', err.message);
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// Bulk save reports (for Excel buffer compatibility)
-app.post('/api/save-audit-reports', async (req, res) => {
-  try {
-    // This endpoint was for Excel buffer, now we just acknowledge it
-    console.log('📋 Received bulk save request');
-    res.json({ success: true, message: 'Reports processed' });
+    res.json({ success: true, report });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -643,11 +382,8 @@ app.post('/api/save-audit-reports', async (req, res) => {
 // Submit for approval
 app.post('/api/audit-reports/:id/submit', async (req, res) => {
   try {
-    const { userName } = req.body;
     const report = await AuditReport.findById(req.params.id);
-    if (!report) {
-      return res.status(404).json({ error: 'Report not found' });
-    }
+    if (!report) return res.status(404).json({ error: 'Report not found' });
 
     report.submissionStatus = 'Submitted';
     report.currentStatus = 'Pending with Supervisor';
@@ -663,15 +399,13 @@ app.post('/api/audit-reports/:id/submit', async (req, res) => {
 // Approve report
 app.post('/api/audit-reports/:id/approve', async (req, res) => {
   try {
-    const { adminName, remarks } = req.body;
+    const { approvedBy, adminName, remarks } = req.body;
     const report = await AuditReport.findById(req.params.id);
-    if (!report) {
-      return res.status(404).json({ error: 'Report not found' });
-    }
+    if (!report) return res.status(404).json({ error: 'Report not found' });
 
     report.currentStatus = 'Approved';
-    report.approvedBy = adminName;
-    report.remarksText = remarks || '';
+    report.approvedBy = approvedBy || adminName;
+    if (remarks) report.remarksText = remarks;
     await report.save();
 
     res.json({ success: true, report });
@@ -683,14 +417,13 @@ app.post('/api/audit-reports/:id/approve', async (req, res) => {
 // Reject report
 app.post('/api/audit-reports/:id/reject', async (req, res) => {
   try {
-    const { adminName, remarks } = req.body;
+    const { remarks } = req.body;
     const report = await AuditReport.findById(req.params.id);
-    if (!report) {
-      return res.status(404).json({ error: 'Report not found' });
-    }
+    if (!report) return res.status(404).json({ error: 'Report not found' });
 
     report.currentStatus = 'Sent Back';
-    report.remarksText = remarks;
+    report.submissionStatus = 'Not Submitted';
+    if (remarks) report.remarksText = remarks;
     await report.save();
 
     res.json({ success: true, report });
@@ -699,104 +432,114 @@ app.post('/api/audit-reports/:id/reject', async (req, res) => {
   }
 });
 
-// Center User - Save center remarks
+// Update remarks
+app.put('/api/audit-reports/:id/remarks', async (req, res) => {
+  try {
+    const { remarksText } = req.body;
+    const report = await AuditReport.findByIdAndUpdate(
+      req.params.id,
+      { remarksText },
+      { new: true }
+    );
+    res.json({ success: true, report });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Center Head Remarks
 app.put('/api/audit-reports/:id/center-remarks', async (req, res) => {
   try {
-    console.log('\n💬 ========== SAVING CENTER HEAD REMARKS ==========');
-    const { centerRemarks, checkpointRemarks, centerUserName } = req.body;
-    console.log('💬 Report ID:', req.params.id);
-    console.log('💬 Center User:', centerUserName);
-    console.log('💬 Checkpoint Remarks received:', checkpointRemarks);
-    
+    const { centerRemarksBy, centerUserName, checkpointRemarks } = req.body;
     const report = await AuditReport.findById(req.params.id);
-    if (!report) {
-      console.log('❌ Report not found!');
-      return res.status(404).json({ error: 'Report not found' });
-    }
+    if (!report) return res.status(404).json({ error: 'Report not found' });
 
-    // Save overall center remarks
-    if (centerRemarks !== undefined) {
-      report.centerRemarks = centerRemarks;
-    }
-    report.centerRemarksBy = centerUserName;
+    report.centerRemarksBy = centerRemarksBy || centerUserName;
     report.centerRemarksDate = new Date().toLocaleString('en-GB');
-    
-    // Save checkpoint-wise center head remarks
-    if (checkpointRemarks && Object.keys(checkpointRemarks).length > 0) {
-      const checkpointIds = ['FO1','FO2','FO3','FO4','FO5','DP1','DP2','DP3','DP4','DP5','DP6','DP7','DP8','DP9','DP10','DP11','PP1','PP2','PP3','PP4','MP1','MP2','MP3','MP4','MP5'];
-      
-      checkpointIds.forEach(cpId => {
-        if (checkpointRemarks[cpId]) {
-          console.log(`💬 Saving ${cpId}: "${checkpointRemarks[cpId]}"`);
-          
-          // Get existing checkpoint data or create new object
-          const existingData = report[cpId] ? report[cpId].toObject() : {};
-          
-          // Add centerHeadRemarks to existing data
+
+    if (checkpointRemarks) {
+      Object.keys(checkpointRemarks).forEach(cpId => {
+        if (report[cpId]) {
+          const existingData = report[cpId].toObject ? report[cpId].toObject() : report[cpId];
           existingData.centerHeadRemarks = checkpointRemarks[cpId];
-          
-          // Set the updated object back
           report[cpId] = existingData;
-          
-          // Mark as modified for Mongoose to detect change
           report.markModified(cpId);
         }
       });
     }
-    
-    await report.save();
 
+    await report.save();
     console.log(`✅ Center Head remarks saved for ${report.centerCode}`);
-    console.log('💬 =============================================\n');
     res.json({ success: true, report });
   } catch (err) {
-    console.error('❌ Error saving center remarks:', err.message);
     res.status(500).json({ error: err.message });
   }
 });
 
 // ========================================
-// EMAIL ROUTE (Using Resend)
+// EMAIL ROUTE (Gmail SMTP + PDF)
 // ========================================
 app.post('/api/send-audit-email', async (req, res) => {
   try {
     const { to, cc, subject, message, reportData } = req.body;
-    console.log(`\n📧 ========== SENDING AUDIT EMAIL (RESEND) ==========`);
+    console.log(`\n📧 ========== SENDING AUDIT EMAIL ==========`);
     console.log(`📧 To: ${to}`);
     console.log(`📧 CC: ${cc || 'None'}`);
     console.log(`📧 Report: ${reportData?.centerName}`);
 
-    // Generate HTML email content
-    const emailHTML = generateEmailHTML(reportData, message);
-
-    // Send email using Resend
-    const { data, error } = await resend.emails.send({
-      from: 'NIIT Audit System <onboarding@resend.dev>',
-      to: [to],
-      cc: cc ? [cc] : undefined,
-      subject: subject || generateEmailSubject(reportData),
-      html: emailHTML
-    });
-
-    if (error) {
-      console.error('❌ Resend error:', error);
-      return res.status(500).json({ success: false, error: error.message });
+    // Generate PDF
+    let pdfBuffer = null;
+    try {
+      console.log('📄 Generating PDF...');
+      const browser = await puppeteer.launch({
+        headless: 'new',
+        args: ['--no-sandbox', '--disable-setuid-sandbox']
+      });
+      const page = await browser.newPage();
+      const pdfHTML = generatePDFHTML(reportData);
+      await page.setContent(pdfHTML, { waitUntil: 'domcontentloaded' });
+      pdfBuffer = await page.pdf({
+        format: 'A4',
+        printBackground: true,
+        margin: { top: '20px', right: '20px', bottom: '20px', left: '20px' }
+      });
+      await browser.close();
+      console.log('📄 PDF generated successfully!');
+    } catch (pdfErr) {
+      console.error('⚠️ PDF generation failed:', pdfErr.message);
     }
 
-    console.log('✅ Email sent successfully! ID:', data.id);
-    
-    // Update report to mark email as sent
+    // Generate HTML email
+    const emailHTML = generateEmailHTML(reportData, message);
+
+    // Send email via Gmail SMTP
+    await transporter.sendMail({
+      from: process.env.EMAIL_USER || 'rythemaggarwal7840@gmail.com',
+      to: to,
+      cc: cc || undefined,
+      subject: subject || generateEmailSubject(reportData),
+      html: emailHTML,
+      attachments: pdfBuffer ? [{
+        filename: `Audit_Report_${reportData.centerCode}_${new Date().toISOString().split('T')[0]}.pdf`,
+        content: pdfBuffer,
+        contentType: 'application/pdf'
+      }] : []
+    });
+
+    console.log('✅ Email sent successfully!');
+
+    // Update report
     if (reportData?._id) {
       await AuditReport.findByIdAndUpdate(reportData._id, {
         emailSent: true,
         emailSentDate: new Date().toLocaleString('en-GB'),
         emailSentTo: to
       });
-      console.log(`✅ Email sent flag updated for report: ${reportData._id}`);
+      console.log(`✅ Email sent flag updated`);
     }
-    
+
     console.log('📧 ==========================================\n');
-    res.json({ success: true, message: 'Email sent successfully!' });
+    res.json({ success: true, message: 'Email sent successfully with PDF!' });
   } catch (err) {
     console.error('❌ Email error:', err.message);
     res.status(500).json({ success: false, error: err.message });
@@ -806,25 +549,19 @@ app.post('/api/send-audit-email', async (req, res) => {
 // ========================================
 // CENTERS ROUTES
 // ========================================
-
-// GET all centers
 app.get('/api/centers', async (req, res) => {
   try {
     const centers = await Center.find({ isActive: true }).sort({ centerCode: 1 });
-    console.log(`📍 Centers fetched: ${centers.length}`);
     res.json(centers);
   } catch (err) {
-    console.error('❌ Error fetching centers:', err.message);
     res.status(500).json({ error: err.message });
   }
 });
 
-// POST create center
 app.post('/api/centers', async (req, res) => {
   try {
     const center = new Center(req.body);
     await center.save();
-    console.log(`✅ Center created: ${center.centerCode}`);
     res.json(center);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -835,7 +572,13 @@ app.post('/api/centers', async (req, res) => {
 // HEALTH CHECK
 // ========================================
 app.get('/api/health', (req, res) => {
-  res.json({ status: 'healthy', database: 'MongoDB Atlas', timestamp: new Date().toISOString() });
+  res.json({ 
+    status: 'healthy', 
+    database: 'MongoDB Atlas',
+    email: 'Gmail SMTP',
+    pdf: 'Puppeteer',
+    timestamp: new Date().toISOString() 
+  });
 });
 
 // ========================================
@@ -843,14 +586,9 @@ app.get('/api/health', (req, res) => {
 // ========================================
 app.listen(PORT, () => {
   console.log(`\n🚀 ========================================`);
-  console.log(`🚀 NIIT Audit System - MongoDB Server`);
-  console.log(`🚀 Port: http://localhost:${PORT}`);
-  console.log(`🚀 ========================================`);
-  console.log(`\n✅ API Routes Ready!`);
-  console.log(`   POST /api/login`);
-  console.log(`   GET  /api/users`);
-  console.log(`   GET  /api/centers`);
-  console.log(`   GET  /api/audit-reports`);
-  console.log(`   POST /api/save-audit-report`);
-  console.log(`\n========================================\n`);
+  console.log(`🚀 Server running on port ${PORT}`);
+  console.log(`🚀 Email: Gmail SMTP ✅`);
+  console.log(`🚀 PDF: Puppeteer ✅`);
+  console.log(`🚀 Local: http://localhost:${PORT}`);
+  console.log(`🚀 ========================================\n`);
 });
