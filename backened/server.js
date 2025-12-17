@@ -139,8 +139,9 @@ app.use(cors({
   origin: [
     'http://localhost:5173',
     'http://localhost:3000',
-    'https://audit-murex.vercel.app',
-    'https://audit-gb4uarzdu-rythem-aggarwals-projects.vercel.app'
+    'https://audit-seven-psi.vercel.app',
+    'https://audit-git-main-rythem-aggarwals-projects.vercel.app',
+    'https://audit-fh6x61p71-rythem-aggarwals-projects.vercel.app'
   ],
   credentials: true
 }));
