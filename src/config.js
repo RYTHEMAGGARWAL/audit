@@ -8,3 +8,6 @@
 export const API_URL = 'http://localhost:3001';
 
 console.log('🔥 API_URL:', API_URL);
+
+// Production URL (Render)
+export const API_URL = 'https://niit-audit-backend.onrender.com';
