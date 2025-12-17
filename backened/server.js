@@ -5,13 +5,16 @@ const express = require('express');
 const cors = require('cors');
 const bodyParser = require('body-parser');
 const mongoose = require('mongoose');
-const nodemailer = require('nodemailer');
 const crypto = require('crypto');
+const { Resend } = require('resend');
 const { generateEmailHTML, generateEmailSubject } = require('./emailTemplate');
 require('dotenv').config();
 
 const app = express();
 const PORT = process.env.PORT || 3001;
+
+// Resend Email Configuration
+const resend = new Resend(process.env.RESEND_API_KEY || 're_gbFL6NWy_NDjPdug3rFbVTwUcnWzA2SAt');
 
 // ========================================
 // MONGODB CONNECTION
@@ -147,18 +150,6 @@ app.use(cors({
 app.use(bodyParser.json({ limit: '10mb' }));
 app.use(bodyParser.urlencoded({ extended: true, limit: '10mb' }));
 app.use('/public', express.static('public'));
-
-// Email Configuration
-const transporter = nodemailer.createTransport({
-  service: 'gmail',
-  auth: {
-    user: process.env.EMAIL_USER || 'rythemaggarwal7840@gmail.com',
-    pass: process.env.EMAIL_PASS || 'mcou dlaz bodo odwe'
-  },
-  connectionTimeout: 60000,  // 60 seconds
-  greetingTimeout: 30000,    // 30 seconds
-  socketTimeout: 60000       // 60 seconds
-});
 
 // ========================================
 // AUTH ROUTES
@@ -765,38 +756,34 @@ app.put('/api/audit-reports/:id/center-remarks', async (req, res) => {
 });
 
 // ========================================
-// EMAIL ROUTE
+// EMAIL ROUTE (Using Resend)
 // ========================================
 app.post('/api/send-audit-email', async (req, res) => {
   try {
-    const { to, cc, subject, message, reportData, auditUserEmail } = req.body;
-    console.log(`\n📧 ========== SENDING AUDIT EMAIL ==========`);
+    const { to, cc, subject, message, reportData } = req.body;
+    console.log(`\n📧 ========== SENDING AUDIT EMAIL (RESEND) ==========`);
     console.log(`📧 To: ${to}`);
     console.log(`📧 CC: ${cc || 'None'}`);
     console.log(`📧 Report: ${reportData?.centerName}`);
 
-    // Generate HTML email content (No PDF - HTML only)
-    let pdfBuffer = null;
-    console.log('📧 Sending HTML email (no PDF attachment)');
-
     // Generate HTML email content
     const emailHTML = generateEmailHTML(reportData, message);
 
-    const mailOptions = {
-      from: process.env.EMAIL_USER,
-      to: to,
-      cc: cc || undefined,
+    // Send email using Resend
+    const { data, error } = await resend.emails.send({
+      from: 'NIIT Audit System <onboarding@resend.dev>',
+      to: [to],
+      cc: cc ? [cc] : undefined,
       subject: subject || generateEmailSubject(reportData),
-      html: emailHTML,
-      attachments: pdfBuffer ? [{
-        filename: `Audit_Report_${reportData.centerCode}_${new Date().toISOString().split('T')[0]}.pdf`,
-        content: pdfBuffer,
-        contentType: 'application/pdf'
-      }] : []
-    };
+      html: emailHTML
+    });
 
-    await transporter.sendMail(mailOptions);
-    console.log('✅ Email sent successfully!');
+    if (error) {
+      console.error('❌ Resend error:', error);
+      return res.status(500).json({ success: false, error: error.message });
+    }
+
+    console.log('✅ Email sent successfully! ID:', data.id);
     
     // Update report to mark email as sent
     if (reportData?._id) {
@@ -809,7 +796,7 @@ app.post('/api/send-audit-email', async (req, res) => {
     }
     
     console.log('📧 ==========================================\n');
-    res.json({ success: true, message: 'Email sent successfully with PDF attachment!' });
+    res.json({ success: true, message: 'Email sent successfully!' });
   } catch (err) {
     console.error('❌ Email error:', err.message);
     res.status(500).json({ success: false, error: err.message });
