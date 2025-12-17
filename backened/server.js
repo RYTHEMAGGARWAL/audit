@@ -155,9 +155,9 @@ const transporter = nodemailer.createTransport({
     user: process.env.EMAIL_USER || 'rythemaggarwal7840@gmail.com',
     pass: process.env.EMAIL_PASS || 'mcou dlaz bodo odwe'
   },
-  connectionTimeout: 10000,
-  greetingTimeout: 10000,
-  socketTimeout: 20000
+  connectionTimeout: 60000,  // 60 seconds
+  greetingTimeout: 30000,    // 30 seconds
+  socketTimeout: 60000       // 60 seconds
 });
 
 // ========================================
